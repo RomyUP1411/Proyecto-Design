@@ -764,7 +764,7 @@ function AddProductForm({ onAdd }) {
     // Validate prices: purchase should typically be <= sale
     const purchase = Number(form.purchase_price || 0);
     const sale = Number(form.sale_price || 0);
-    if (purchase > 0 && sale > 0 && purchase > sale) {
+    if (purchase > 0 && sale > 0 && purchase >= sale) {
       const swap = confirm('El precio de compra es mayor que el precio de venta. ¿Deseas intercambiarlos (compra <-> venta)?');
       if (swap) {
         const swapped = { ...form, purchase_price: String(sale), sale_price: String(purchase) };
@@ -773,7 +773,7 @@ function AddProductForm({ onAdd }) {
         return;
       } else {
         // proceed but warn
-        alert('Advertencia: el precio de compra es mayor que el precio de venta. Se agregará tal cual.');
+        alert('Error: El precio de compra debe ser menor que el precio de venta.'); return;
       }
     }
     if (onAdd) onAdd(form);
@@ -1163,8 +1163,8 @@ function App() {
       // Enforce sale_price > purchase_price with minimal margen (1%)
       const purchase = Number(productPayload.purchase_price) || 0;
       const sale = Number(productPayload.sale_price) || 0;
-      if (sale <= purchase * 1.01) {
-        addToast('error', 'Precio inválido', 'El precio de venta debe ser al menos 1% mayor que el precio de compra');
+      if (sale <= purchase) {
+        addToast('error', 'Precio inválido', 'El precio de venta debe ser mayor que el precio de compra');
         return;
       }
 
