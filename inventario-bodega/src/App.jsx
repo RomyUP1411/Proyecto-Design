@@ -58,10 +58,44 @@ function RSSIIndicator({ rssi, connected }){
 async function initDB(){
   const db = await openDB(DB_NAME, 1, {
     upgrade(db) {
+      // Productos y configuración
       if (!db.objectStoreNames.contains('products')) db.createObjectStore('products', { keyPath: 'sku' });
-      if (!db.objectStoreNames.contains('batches')) db.createObjectStore('batches', { keyPath: 'id', autoIncrement: true });
-      if (!db.objectStoreNames.contains('movements')) db.createObjectStore('movements', { keyPath: 'id', autoIncrement: true });
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
+      
+      // Operadores
+      if (!db.objectStoreNames.contains('operators')) {
+        const operatorsStore = db.createObjectStore('operators', { keyPath: 'id', autoIncrement: true });
+        operatorsStore.createIndex('by_device', 'device_id');
+        operatorsStore.createIndex('by_name', 'name');
+      }
+      
+      // Inventario
+      if (!db.objectStoreNames.contains('batches')) {
+        const batchStore = db.createObjectStore('batches', { keyPath: 'id', autoIncrement: true });
+        batchStore.createIndex('by_sku', 'product_sku');
+        batchStore.createIndex('by_lot', 'lot');
+      }
+      
+      // Ventas y movimientos
+      if (!db.objectStoreNames.contains('sales')) {
+        const salesStore = db.createObjectStore('sales', { keyPath: 'id', autoIncrement: true });
+        salesStore.createIndex('by_sku', 'sku');
+        salesStore.createIndex('by_date', 'timestamp');
+      }
+      
+      if (!db.objectStoreNames.contains('returns')) {
+        const returnsStore = db.createObjectStore('returns', { keyPath: 'id', autoIncrement: true });
+        returnsStore.createIndex('by_sale_id', 'sale_id');
+        returnsStore.createIndex('by_date', 'timestamp'); 
+      }
+      
+      // Movimientos generales (ingresos, devoluciones, etc)
+      if (!db.objectStoreNames.contains('movements')) {
+        const movStore = db.createObjectStore('movements', { keyPath: 'id', autoIncrement: true });
+        movStore.createIndex('by_type', 'type');
+        movStore.createIndex('by_sku', 'sku');
+        movStore.createIndex('by_date', 'timestamp');
+      }
     }
   });
   return db;
@@ -1363,9 +1397,7 @@ function App() {
     if (!db || !connected) return;
     
     try {
-      const tx = db.transaction(['products', 'batches', 'movements'], 'readwrite');
-      
-      // Create movement record
+      // Base movement record
       const movement = {
         type: payload.event,
         sku: payload.sku || payload.barcode,
@@ -1379,10 +1411,11 @@ function App() {
         operator: payload.operator || settings?.user || 'Operador',
         bodega: payload.bodega || settings?.bodega || 'Bodega'
       };
-      
-      await tx.objectStore('movements').add(movement);
-      
-  if (payload.event === 'ingreso') {
+
+      if (payload.event === 'ingreso') {
+        // Transacción de ingreso a inventario
+        const tx = db.transaction(['products', 'batches', 'movements'], 'readwrite');
+        
         // Create or update product
         const productStore = tx.objectStore('products');
         const existingProduct = await productStore.get(movement.sku);
@@ -1398,37 +1431,55 @@ function App() {
           });
         }
         
-        // Create batch
+        // Create batch con INIT- para identificar stock inicial
         await tx.objectStore('batches').add({
           product_sku: movement.sku,
-          lot: movement.lot || `AUTO-${Date.now()}`,
+          lot: movement.lot || `INIT-${Date.now()}`,
           expiry: movement.expiry,
           quantity: movement.quantity,
           purchase_price: movement.price,
           created_at: nowISO()
         });
         
+        // Registrar movimiento
+        await tx.objectStore('movements').add({
+          ...movement,
+          type: 'ingreso_inventario'
+        });
+        
+        await tx.done;
         addToast('success', 'Ingreso procesado', 
-          `${movement.quantity} unidades de ${movement.name} agregadas`);
+          `${movement.quantity} unidades de ${movement.name} agregadas al inventario`);
         
       } else if (payload.event === 'venta') {
-        // Check total stock for this SKU before processing
+        // Transacción de venta 
+        const tx = db.transaction(['sales', 'batches', 'movements'], 'readwrite');
+        
+        // Verificar stock
         const batchStore = tx.objectStore('batches');
         const allBatches = await batchStore.getAll();
-        const totalStock = allBatches.filter(b => b.product_sku === movement.sku).reduce((s, b) => s + (b.quantity || 0), 0);
+        const totalStock = allBatches
+          .filter(b => b.product_sku === movement.sku && !b.lot?.startsWith('DEV-'))
+          .reduce((s, b) => s + (b.quantity || 0), 0);
+          
         if (movement.quantity > totalStock) {
-          addToast('error', 'Venta denegada', `Stock insuficiente: intento vender ${movement.quantity} pero solo hay ${totalStock}`);
-          await tx.done; // rollback
+          addToast('error', 'Venta denegada', 
+            `Stock insuficiente: intento vender ${movement.quantity} pero solo hay ${totalStock}`);
+          await tx.done;
           return;
         }
-  // Implement FIFO (PEPS)
-  // re-use batchStore and allBatches declared above
-        // Filter and sort batches for this product by creation date
+        
+        // Implementar FIFO (PEPS) para descontar stock
         const productBatches = allBatches
-          .filter(batch => batch.product_sku === movement.sku && batch.quantity > 0)
+          .filter(batch => 
+            batch.product_sku === movement.sku && 
+            batch.quantity > 0 &&
+            !batch.lot?.startsWith('DEV-')
+          )
           .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         
         let remaining = movement.quantity;
+        const batchesUsed = [];
         
         for (const batch of productBatches) {
           if (remaining <= 0) break;
@@ -1437,43 +1488,90 @@ function App() {
           batch.quantity -= take;
           remaining -= take;
           
+          batchesUsed.push({
+            batchId: batch.id,
+            quantity: take,
+            purchase_price: batch.purchase_price
+          });
+          
           await batchStore.put(batch);
         }
         
-        if (remaining > 0) {
-          addToast('warning', 'Stock insuficiente', 
-            `Faltaron ${remaining} unidades. Venta procesada parcialmente.`);
-        } else {
-          addToast('success', 'Venta procesada', 
-            `${movement.quantity} unidades de ${movement.name} vendidas`);
-        }
+        // Registrar venta
+        const sale = await tx.objectStore('sales').add({
+          ...movement,
+          batches_used: batchesUsed,
+          total: movement.quantity * movement.price,
+          status: 'completed'
+        });
+        
+        // Registrar movimiento
+        await tx.objectStore('movements').add({
+          ...movement,
+          type: 'venta',
+          sale_id: sale,
+          batches_used: batchesUsed
+        });
+        
+        await tx.done;
+        addToast('success', 'Venta registrada',
+          `${movement.quantity} unidades de ${movement.name} vendidas`);
         
       } else if (payload.event === 'devolucion') {
-        // Ensure that total returns do not exceed total sold for this SKU
-        const movStoreAll = await tx.objectStore('movements').getAll();
-        const sold = movStoreAll.filter(m => m.sku === movement.sku && m.type === 'venta').reduce((s, m) => s + (m.quantity || 0), 0);
-        const returned = movStoreAll.filter(m => m.sku === movement.sku && m.type === 'devolucion').reduce((s, m) => s + (m.quantity || 0), 0);
-        if ((returned + movement.quantity) > sold) {
-          addToast('error', 'Devolución denegada', `No hay suficientes ventas previas para devolver ${movement.quantity} unidades`);
+        // Verificar ventas previas
+        const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
+        
+        const salesStore = tx.objectStore('sales');
+        const sales = await salesStore.getAll();
+        const returnsStore = tx.objectStore('returns');
+        const returns = await returnsStore.getAll();
+        
+        // Calcular ventas y devoluciones totales
+        const soldTotal = sales
+          .filter(s => s.sku === movement.sku && s.status === 'completed')
+          .reduce((sum, s) => sum + s.quantity, 0);
+          
+        const returnedTotal = returns  
+          .filter(r => r.sku === movement.sku)
+          .reduce((sum, r) => sum + r.quantity, 0);
+          
+        if (movement.quantity > (soldTotal - returnedTotal)) {
+          addToast('error', 'Devolución denegada',
+            `No hay suficientes ventas sin devolver para ${movement.quantity} unidades`);
           await tx.done;
           return;
         }
-
-        // Create new batch for return
+        
+        // Registrar devolución
+        const returnId = await returnsStore.add({
+          ...movement,
+          original_sale_id: null, // No rastreamos la venta específica
+          status: 'completed'
+        });
+        
+        // Crear nuevo lote para producto devuelto
         await tx.objectStore('batches').add({
           product_sku: movement.sku,
-          lot: movement.lot || `DEV-${Date.now()}`,
+          lot: `DEV-${returnId}`,
           expiry: movement.expiry,
           quantity: movement.quantity,
           purchase_price: movement.price,
-          created_at: nowISO()
+          created_at: nowISO(),
+          return_id: returnId
         });
-
-        addToast('info', 'Devolución procesada', 
-          `${movement.quantity} unidades de ${movement.name} devueltas`);
+        
+        // Registrar movimiento
+        await tx.objectStore('movements').add({
+          ...movement,
+          type: 'devolucion_venta',
+          return_id: returnId
+        });
+        
+        await tx.done;
+        addToast('success', 'Devolución procesada',
+          `${movement.quantity} unidades de ${movement.name} devueltas al inventario`);
       }
       
-      await tx.done;
       
       // Update events feed
       setEvents(prev => [{
@@ -1493,20 +1591,75 @@ function App() {
   const handleUndoSale = async (saleEvent) => {
     if (!db) return;
     
-    const returnPayload = {
-      event: 'devolucion',
-      sku: saleEvent.sku,
-      name: saleEvent.name,
-      quantity: saleEvent.quantity,
-      purchase_price: 0, // Unknown original purchase price
-      lot: `UNDO-${Date.now()}`,
-      timestamp: nowISO(),
-      device_id: saleEvent.device_id,
-      operator: `${settings?.user || 'Usuario'} (deshacer venta)`
-    };
-    
-    await handleProcessEvent(returnPayload);
-    addToast('info', 'Venta deshecha', `Devolución creada para ${saleEvent.quantity} unidades`);
+    try {
+      const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
+      
+      // Verificar que la venta existe y no está anulada
+      const salesStore = tx.objectStore('sales');
+      const sale = await salesStore.get(saleEvent.id);
+      
+      if (!sale || sale.status === 'cancelled') {
+        addToast('error', 'Error', 'No se encontró la venta o ya fue anulada');
+        await tx.done;
+        return;
+      }
+      
+      // Registrar devolución
+      const returnsStore = tx.objectStore('returns');
+      const returnId = await returnsStore.add({
+        sku: saleEvent.sku,
+        name: saleEvent.name,
+        quantity: saleEvent.quantity,
+        price: sale.price || 0,
+        timestamp: nowISO(),
+        device_id: saleEvent.device_id,
+        operator: `${settings?.user || 'Usuario'} (anulación)`,
+        original_sale_id: saleEvent.id,
+        status: 'completed'
+      });
+      
+      // Crear lote especial para devolución
+      const batchesStore = tx.objectStore('batches');
+      await batchesStore.add({
+        product_sku: saleEvent.sku,
+        lot: `UNDO-${returnId}`,
+        quantity: saleEvent.quantity,
+        purchase_price: sale.batches_used?.[0]?.purchase_price || 0, // Usar precio original si está disponible
+        expiry: null,
+        created_at: nowISO(),
+        return_id: returnId
+      });
+      
+      // Marcar venta como anulada
+      sale.status = 'cancelled';
+      await salesStore.put(sale);
+      
+      // Registrar movimiento
+      await tx.objectStore('movements').add({
+        type: 'anulacion_venta',
+        sku: saleEvent.sku,
+        name: saleEvent.name,
+        quantity: saleEvent.quantity,
+        price: sale.price || 0,
+        timestamp: nowISO(),
+        device_id: saleEvent.device_id,
+        operator: `${settings?.user || 'Usuario'} (anulación)`,
+        sale_id: saleEvent.id,
+        return_id: returnId
+      });
+      
+      await tx.done;
+      
+      addToast('success', 'Venta anulada', 
+        `Se anuló la venta de ${saleEvent.quantity} unidades de ${saleEvent.name}`);
+      
+      // Refrescar datos
+      await refreshData();
+      
+    } catch (error) {
+      console.error('Error anulando venta:', error);
+      addToast('error', 'Error', 'No se pudo anular la venta: ' + error.message);
+    }
   };
 
   // Generic return handler used from UI (ventas o inventario)
@@ -1515,56 +1668,116 @@ function App() {
 
     try {
       if (mode === 'ventas') {
-        // Create a devolucion to add items back to inventory (undo sale)
+        // Devolver venta: crear registro en returns y devolver al inventario
+        const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
         const product = products.find(p => p.sku === batch.product_sku) || {};
-        const returnPayload = {
-          event: 'devolucion',
+
+        // Registrar devolución
+        const returnId = await tx.objectStore('returns').add({
           sku: batch.product_sku,
           name: product.name || batch.product_sku,
-          quantity: batch.quantity || 1,
-          purchase_price: batch.purchase_price || 0,
-          lot: `UNDO-${Date.now()}`,
+          quantity: batch.quantity,
+          price: batch.purchase_price,
           timestamp: nowISO(),
           device_id: selectedDevice?.id,
-          operator: selectedDevice?.operator || settings?.user || 'Usuario'
-        };
+          operator: selectedDevice?.operator || settings?.user || 'Usuario',
+          original_batch_id: batch.id,
+          status: 'completed'
+        });
 
-        await handleProcessEvent(returnPayload);
-        addToast('info', 'Devolución creada', `Se devolvieron ${returnPayload.quantity} unidades de ${returnPayload.name}`);
+        // Crear nuevo lote para los productos devueltos
+        await tx.objectStore('batches').add({
+          product_sku: batch.product_sku,
+          lot: `DEV-SALE-${returnId}`,
+          expiry: batch.expiry,
+          quantity: batch.quantity,
+          purchase_price: batch.purchase_price,
+          created_at: nowISO(),
+          return_id: returnId,
+          status: 'returned'
+        });
+
+        // Registrar movimiento
+        await tx.objectStore('movements').add({
+          type: 'devolucion_venta',
+          sku: batch.product_sku,
+          name: product.name || batch.product_sku,
+          quantity: batch.quantity,
+          price: batch.purchase_price,
+          lot: `DEV-SALE-${returnId}`,
+          timestamp: nowISO(),
+          device_id: selectedDevice?.id,
+          operator: selectedDevice?.operator || settings?.user || 'Usuario',
+          return_id: returnId
+        });
+
+        await tx.done;
+        addToast('success', 'Venta devuelta', 
+          `${batch.quantity} unidades de ${product.name} devueltas al inventario`);
+
       } else {
-        // mode === 'inventario' -> Devolver compra: marcar lote como devuelto y restar stock
-        const tx = db.transaction(['batches', 'movements'], 'readwrite');
+        // Devolver compra: marcar lote como devuelto y registrar movimiento
+        const tx = db.transaction(['batches', 'returns', 'movements'], 'readwrite');
+        
+        // Verificar que el lote existe y no está ya devuelto
         const batchStore = tx.objectStore('batches');
         const existing = await batchStore.get(batch.id);
+        
         if (!existing) {
           addToast('error', 'Error', 'Lote no encontrado');
           await tx.done;
           return;
         }
 
-        // Mark as returned
-        existing.lot = `DEV-${existing.lot || Date.now()}`;
-        existing.quantity = 0;
-        await batchStore.put(existing);
+        if (existing.status === 'returned') {
+          addToast('error', 'Error', 'Este lote ya fue devuelto');
+          await tx.done;
+          return;
+        }
 
-        // Record movement
-        await tx.objectStore('movements').add({
-          type: 'devolucion_compra',
+        // Registrar devolución
+        const returnId = await tx.objectStore('returns').add({
           sku: existing.product_sku,
           name: (products.find(p => p.sku === existing.product_sku) || {}).name || existing.product_sku,
-          quantity: 0,
-          price: existing.purchase_price || 0,
+          quantity: existing.quantity,
+          price: existing.purchase_price,
+          timestamp: nowISO(),
+          device_id: selectedDevice?.id,
+          operator: selectedDevice?.operator || settings?.user || 'Usuario',
+          original_batch_id: batch.id,
+          status: 'completed',
+          type: 'inventory_return'
+        });
+
+        // Marcar lote como devuelto
+        existing.lot = `DEV-INV-${returnId}`;
+        existing.status = 'returned';
+        existing.return_id = returnId;
+        existing.quantity = 0; // Vaciar stock
+        await batchStore.put(existing);
+
+        // Registrar movimiento
+        await tx.objectStore('movements').add({
+          type: 'devolucion_inventario',
+          sku: existing.product_sku,
+          name: (products.find(p => p.sku === existing.product_sku) || {}).name || existing.product_sku,
+          quantity: existing.quantity,
+          price: existing.purchase_price,
           lot: existing.lot,
           timestamp: nowISO(),
           device_id: selectedDevice?.id,
           operator: selectedDevice?.operator || settings?.user || 'Usuario',
-          bodega: settings?.bodega
+          return_id: returnId
         });
 
         await tx.done;
-        addToast('info', 'Compra devuelta', `El lote ${existing.lot} fue marcado como devuelto y removido del inventario`);
-        await refreshData();
+        addToast('success', 'Compra devuelta', 
+          `El lote ${batch.lot} fue marcado como devuelto y removido del inventario`);
       }
+
+      // Refrescar datos
+      await refreshData();
+
     } catch (error) {
       console.error('Return error:', error);
       addToast('error', 'Error', 'No se pudo procesar la devolución: ' + error.message);
