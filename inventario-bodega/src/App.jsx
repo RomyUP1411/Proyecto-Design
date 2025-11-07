@@ -62,13 +62,6 @@ async function initDB(){
       if (!db.objectStoreNames.contains('products')) db.createObjectStore('products', { keyPath: 'sku' });
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
       
-      // Operadores
-      if (!db.objectStoreNames.contains('operators')) {
-        const operatorsStore = db.createObjectStore('operators', { keyPath: 'id', autoIncrement: true });
-        operatorsStore.createIndex('by_device', 'device_id');
-        operatorsStore.createIndex('by_name', 'name');
-      }
-      
       // Inventario
       if (!db.objectStoreNames.contains('batches')) {
         const batchStore = db.createObjectStore('batches', { keyPath: 'id', autoIncrement: true });
@@ -1394,22 +1387,36 @@ function App() {
   };
   
   const handleProcessEvent = async (payload) => {
-    if (!db || !connected) return;
+    if (!db || !connected) {
+      addToast('error', 'Error', !db ? 'Base de datos no disponible' : 'Dispositivo no conectado');
+      return;
+    }
     
     try {
-      // Base movement record
+      // Validar datos básicos
+      if (!payload.sku && !payload.barcode) {
+        addToast('error', 'Error', 'Se requiere SKU o código de barras');
+        return;
+      }
+      
+      if (!payload.name) {
+        addToast('error', 'Error', 'Se requiere nombre del producto');
+        return;
+      }
+      
+      // Base movement record con valores por defecto
       const movement = {
         type: payload.event,
         sku: payload.sku || payload.barcode,
-        name: payload.name || 'Producto sin nombre',
-        quantity: payload.quantity || 1,
-        price: payload.purchase_price || payload.sale_price || 0,
-        lot: payload.lot || '',
+        name: payload.name,
+        quantity: Math.max(1, payload.quantity || 0),
+        price: Math.max(0, payload.purchase_price || payload.sale_price || 0),
+        lot: payload.lot || `LOT-${Date.now()}`,
         expiry: payload.expiry || null,
         timestamp: payload.timestamp || nowISO(),
         device_id: payload.device_id || selectedDevice.id,
-        operator: payload.operator || settings?.user || 'Operador',
-        bodega: payload.bodega || settings?.bodega || 'Bodega'
+        operator: payload.operator || selectedDevice?.operator || settings?.user || 'Operador',
+        bodega: payload.bodega || settings?.bodega || 'Bodega Principal'
       };
 
       if (payload.event === 'ingreso') {
@@ -1572,11 +1579,16 @@ function App() {
           `${movement.quantity} unidades de ${movement.name} devueltas al inventario`);
       }
       
-      
-      // Update events feed
+      // Update events feed con id único y tipos específicos según la operación
+      const eventType = payload.event === 'ingreso' ? 'ingreso_inventario' :
+                       payload.event === 'venta' ? 'venta' :
+                       'devolucion_venta';
+                       
       setEvents(prev => [{
         id: Date.now(),
-        ...movement
+        ...movement,
+        type: eventType,
+        timestamp: nowISO()
       }, ...prev.slice(0, 19)]);
       
       // Refresh data
