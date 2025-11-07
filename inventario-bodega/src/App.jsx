@@ -723,9 +723,11 @@ function AddProductForm({ onAdd }) {
 function InventoryTable({ batches, products, movements, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){
   const [searchTerm, setSearchTerm] = useState('');
   // sectionMode controla la sección principal: 'ventas' o 'inventario'
-  const [sectionMode, setSectionMode] = useState('ventas'); // 'ventas' or 'inventario'
-  // viewMode controla la forma de ver el inventario: 'batches' (por lotes) o 'products' (por producto)
-  const [viewMode, setViewMode] = useState('batches');
+  const [sectionMode, setSectionMode] = useState('inventario');
+  const [viewMode, setViewMode] = useState('ingresos'); // Valores posibles:
+  // Inventario: 'ingresos', 'devoluciones_compra', 'stock'
+  // Ventas: 'registro_ventas', 'devoluciones_venta', 'historial'
+
   const [sortField, setSortField] = useState('sku');
   const [sortDir, setSortDir] = useState('asc');
   
@@ -933,21 +935,69 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
         </div>
       </div>
 
-      {/* Vista switcher */}
+      {/* Vista switcher mejorado */}
       <div style={{ marginBottom: '16px' }}>
-        <button 
-          className={`btn ${sectionMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
-          onClick={() => setSectionMode('ventas')}
-          style={{ marginRight: '8px' }}
-        >
-          💰 Ventas
-        </button>
-        <button 
-          className={`btn ${sectionMode === 'inventario' ? 'btn--primary' : 'btn--outline'}`}
-          onClick={() => setSectionMode('inventario')}
-        >
-          📦 Inventario
-        </button>
+        <div className="tab-group" style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            className={`btn ${sectionMode === 'inventario' ? 'btn--primary' : 'btn--outline'}`}
+            onClick={() => setSectionMode('inventario')}
+          >
+            📦 Gestión de Inventario
+          </button>
+          <button 
+            className={`btn ${sectionMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
+            onClick={() => setSectionMode('ventas')}
+          >
+            💰 Registro de Ventas
+          </button>
+        </div>
+        
+        {/* Subtabs según la sección */}
+        {sectionMode === 'inventario' && (
+          <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+            <button 
+              className={`btn btn--sm ${viewMode === 'ingresos' ? 'btn--secondary' : 'btn--outline'}`}
+              onClick={() => setViewMode('ingresos')}
+            >
+              � Ingresos
+            </button>
+            <button 
+              className={`btn btn--sm ${viewMode === 'devoluciones_compra' ? 'btn--secondary' : 'btn--outline'}`}
+              onClick={() => setViewMode('devoluciones_compra')}
+            >
+              ↩️ Devoluciones a Proveedor
+            </button>
+            <button 
+              className={`btn btn--sm ${viewMode === 'stock' ? 'btn--secondary' : 'btn--outline'}`}
+              onClick={() => setViewMode('stock')}
+            >
+              📊 Stock Actual
+            </button>
+          </div>
+        )}
+        
+        {sectionMode === 'ventas' && (
+          <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+            <button 
+              className={`btn btn--sm ${viewMode === 'registro_ventas' ? 'btn--secondary' : 'btn--outline'}`}
+              onClick={() => setViewMode('registro_ventas')}
+            >
+              💳 Registro de Ventas
+            </button>
+            <button 
+              className={`btn btn--sm ${viewMode === 'devoluciones_venta' ? 'btn--secondary' : 'btn--outline'}`}
+              onClick={() => setViewMode('devoluciones_venta')}
+            >
+              ↩️ Devoluciones de Clientes
+            </button>
+            <button 
+              className={`btn btn--sm ${viewMode === 'historial' ? 'btn--secondary' : 'btn--outline'}`}
+              onClick={() => setViewMode('historial')}
+            >
+              📜 Historial
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Table */}
