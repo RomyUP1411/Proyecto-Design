@@ -735,8 +735,19 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
     settings?.columns?.includes(col.key) || col.required
   );
   
-  // Filter batches
-  const filteredBatches = batches.filter(batch => {
+  // Primero filtramos por sección (inventario o ventas)
+  const sectionBatches = batches.filter(batch => {
+    if (sectionMode === 'inventario') {
+      // Para inventario: mostrar solo ingresos normales y devoluciones de compras
+      return !batch.lot?.startsWith('DEV-SALE-') && !batch.lot?.startsWith('UNDO-');
+    } else {
+      // Para ventas: mostrar solo ventas y sus devoluciones
+      return batch.lot?.startsWith('DEV-SALE-') || batch.lot?.startsWith('UNDO-');
+    }
+  });
+
+  // Luego filtramos por término de búsqueda
+  const filteredBatches = sectionBatches.filter(batch => {
     if (!searchTerm) return true;
     const product = products.find(p => p.sku === batch.product_sku) || {};
     const searchLower = searchTerm.toLowerCase();
@@ -818,8 +829,9 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
     }
   };
   
-  const totalItems = batches.reduce((sum, batch) => sum + (batch.quantity || 0), 0);
-  const totalValue = batches.reduce((sum, batch) => 
+  // Calcular totales solo para los lotes filtrados por sección
+  const totalItems = filteredBatches.reduce((sum, batch) => sum + (batch.quantity || 0), 0);
+  const totalValue = filteredBatches.reduce((sum, batch) => 
     sum + ((batch.quantity || 0) * (batch.purchase_price || 0)), 0
   );
   // Calculate potential profit: (sale_price - purchase_price) * quantity
@@ -1078,12 +1090,30 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
                   opacity: isReturned ? 0.5 : 1
                 };
 
-                // Filtrar por vista
-                if (viewMode === 'ventas' && (isReturned || batch.lot?.startsWith('INIT-'))) {
-                  return null;
-                }
-                if (viewMode === 'inventario' && !isReturned && !batch.lot?.startsWith('INIT-')) {
-                  return null;
+                // Filtrar por tipo de vista dentro de cada sección
+                if (sectionMode === 'inventario') {
+                  if (viewMode === 'ingresos' && (isReturned || batch.lot?.startsWith('DEV-'))) {
+                    return null;
+                  }
+                  if (viewMode === 'devoluciones_compra' && !batch.lot?.startsWith('DEV-INV-')) {
+                    return null;
+                  }
+                  if (viewMode === 'stock' && (batch.lot?.startsWith('DEV-') || batch.quantity <= 0)) {
+                    return null;
+                  }
+                } else { // sectionMode === 'ventas'
+                  if (viewMode === 'registro_ventas' && (batch.lot?.startsWith('DEV-') || batch.lot?.startsWith('UNDO-'))) {
+                    return null;
+                  }
+                  if (viewMode === 'devoluciones_venta' && !batch.lot?.startsWith('DEV-SALE-')) {
+                    return null;
+                  }
+                  if (viewMode === 'historial') {
+                    // En el historial mostramos todo lo relacionado con ventas
+                    if (!batch.lot?.startsWith('DEV-SALE-') && !batch.lot?.startsWith('UNDO-')) {
+                      return null;
+                    }
+                  }
                 }
 
                 // Build cells in the same order as visibleColumns to keep headers aligned
