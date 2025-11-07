@@ -182,14 +182,14 @@ function Onboarding({ onComplete }) {
   
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.bodega.trim() || formData.operators.some(op => !op.trim())) {
-      alert('Por favor completa el nombre de la bodega y los 3 trabajadores');
+    if (!formData.bodega.trim()) {
+      alert('Por favor ingresa el nombre de la bodega');
       return;
     }
     // Asignar operadores a pulseras
     const devicesWithOperators = SIMULATED_DEVICES.map((device, index) => ({
       ...device,
-      operator: formData.operators[index]
+      operator: formData.operators[index]?.trim() || ''
     }));
     onComplete({ ...formData, devices: devicesWithOperators });
   };
@@ -218,9 +218,18 @@ function Onboarding({ onComplete }) {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Trabajadores (3 pulseras disponibles) *</label>
+            <label className="form-label">Trabajadores (3 pulseras disponibles)</label>
             {formData.operators.map((operator, index) => (
-              <div key={index} style={{ marginBottom: '8px' }}>
+              <div key={index} style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ 
+                  padding: '8px', 
+                  background: 'var(--color-bg-1)', 
+                  borderRadius: '4px',
+                  minWidth: '100px',
+                  fontWeight: 'bold'
+                }}>
+                  Pulsera {index + 1}
+                </div>
                 <input
                   className="form-control"
                   type="text"
@@ -230,13 +239,12 @@ function Onboarding({ onComplete }) {
                     newOperators[index] = e.target.value;
                     setFormData(prev => ({ ...prev, operators: newOperators }));
                   }}
-                  placeholder={`Trabajador ${index + 1}`}
-                  required
+                  placeholder={`Nombre del trabajador (opcional)`}
                 />
               </div>
             ))}
             <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-              Ingresa el nombre de los 3 trabajadores que usarán las pulseras
+              Asigna los trabajadores a las pulseras. Puedes dejar campos vacíos y asignarlos más tarde.
             </div>
           </div>
           
@@ -977,9 +985,39 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
       </div>
 
       {/* Table */}
-      <div className="table-container">
-        <table className="inventory-table">
-          <thead>
+      <div className="table-container" style={{ 
+        border: '1px solid var(--color-border)', 
+        borderRadius: '8px',
+        overflow: 'auto',
+        maxHeight: '600px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+      }}>
+        <table className="inventory-table" style={{
+          borderCollapse: 'separate',
+          borderSpacing: 0,
+          width: '100%',
+          background: 'var(--color-surface)',
+          '& td, & th': {
+            border: '1px solid var(--color-border)',
+            padding: '8px 12px',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: '200px'
+          },
+          '& th': {
+            fontWeight: 'bold',
+            textAlign: 'left',
+            borderBottom: '2px solid var(--color-border)'
+          }
+        }}>
+          <thead style={{ 
+            position: 'sticky', 
+            top: 0, 
+            background: 'var(--color-bg-1)', 
+            zIndex: 1,
+            boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+          }}>
             <tr>
               {visibleColumns.map(column => (
                 <th 
@@ -1093,14 +1131,24 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
                       </strong>
                     </td>
                     <td>
-                      {!isReturned && !batch.lot?.startsWith('INIT-') && viewMode === 'ventas' && (
+                      {!isReturned && !batch.lot?.startsWith('INIT-') && (
                         <button 
                           className="btn btn--outline btn--sm"
                           onClick={() => onReturn(batch)}
                           title="Devolver producto"
+                          style={{ width: '100%' }}
                         >
-                          🔄 Devolver
+                          {viewMode === 'ventas' ? '🔄 Devolver venta' : '↩️ Devolver compra'}
                         </button>
+                      )}
+                      {isReturned && (
+                        <span style={{ 
+                          fontSize: '12px', 
+                          color: 'var(--color-text-secondary)',
+                          fontStyle: 'italic' 
+                        }}>
+                          Devuelto
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -1560,15 +1608,30 @@ function App() {
       const workbook = new ExcelJS.Workbook();
       const movementsSheet = workbook.addWorksheet('Movimientos del Día');
       
-      movementsSheet.addRow(['Timestamp', 'Tipo', 'SKU', 'Nombre', 'Cantidad', 'Precio', 'Lote', 'Operador', 'Dispositivo']);
+      // Estilo para el encabezado
+      movementsSheet.addRow(['Timestamp', 'Tipo', 'SKU', 'Nombre', 'Cantidad', 'Precio', 'Lote', 'Operador', 'Pulsera', 'Estado']);
+      movementsSheet.getRow(1).font = { bold: true };
+      movementsSheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' }
+      };
+      
+      // Añadir resumen por operador
+      const operatorSummary = workbook.addWorksheet('Resumen por Operador');
+      operatorSummary.addRow(['Operador', 'Pulsera', 'Total Ventas', 'Total Compras', 'Total Devoluciones']);
       
       // Filter today's movements
       const today = new Date().toISOString().split('T')[0];
       const todayMovements = movements.filter(mov => mov.timestamp.startsWith(today));
       
+      // Procesar movimientos y crear resumen
+      const operatorStats = {};
+      
       todayMovements
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
         .forEach(mov => {
+          // Añadir movimiento a la hoja principal
           movementsSheet.addRow([
             formatDateTime(mov.timestamp),
             mov.type,
@@ -1578,9 +1641,39 @@ function App() {
             mov.price,
             mov.lot || '',
             mov.operator,
-            mov.device_id
+            mov.device_id,
+            mov.lot?.startsWith('DEV-') || mov.lot?.startsWith('UNDO-') ? 'Devuelto' : 'Activo'
           ]);
+
+          // Actualizar estadísticas del operador
+          if (!operatorStats[mov.operator]) {
+            operatorStats[mov.operator] = {
+              device: mov.device_id,
+              ventas: 0,
+              compras: 0,
+              devoluciones: 0
+            };
+          }
+
+          if (mov.type === 'venta') {
+            operatorStats[mov.operator].ventas += mov.quantity;
+          } else if (mov.type === 'ingreso') {
+            operatorStats[mov.operator].compras += mov.quantity;
+          } else if (mov.type === 'devolucion') {
+            operatorStats[mov.operator].devoluciones += mov.quantity;
+          }
         });
+
+      // Añadir resumen por operador
+      Object.entries(operatorStats).forEach(([operator, stats]) => {
+        operatorSummary.addRow([
+          operator,
+          stats.device,
+          stats.ventas,
+          stats.compras,
+          stats.devoluciones
+        ]);
+      });
       
       const buffer = await workbook.xlsx.writeBuffer();
       const timestamp = today.replace(/-/g, '');
