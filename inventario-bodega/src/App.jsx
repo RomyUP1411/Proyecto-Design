@@ -21,9 +21,9 @@ const SAMPLE_PRODUCTS = [
 ];
 
 const SIMULATED_DEVICES = [
-  { id: 'BRZ-001', name: 'Brazalete-Proto-001', rssi: -50 },
-  { id: 'BRZ-002', name: 'Brazalete-Proto-002', rssi: -65 },
-  { id: 'BRZ-003', name: 'Brazalete-Proto-003', rssi: -78 }
+  { id: 'BRZ-001', name: 'Pulsera-001', rssi: -50, operator: '' },
+  { id: 'BRZ-002', name: 'Pulsera-002', rssi: -65, operator: '' },
+  { id: 'BRZ-003', name: 'Pulsera-003', rssi: -78, operator: '' }
 ];
 
 const DEFAULT_COLUMNS = [
@@ -81,12 +81,20 @@ function formatDateTime(dateStr) {
   return new Date(dateStr).toLocaleString('es-ES');
 }
 
-function isExpiringSoon(dateStr) {
-  if (!dateStr) return false;
+function checkExpiry(dateStr) {
+  if (!dateStr) return 'normal';
   const expiry = new Date(dateStr);
   const now = new Date();
   const diffDays = (expiry - now) / (1000 * 60 * 60 * 24);
-  return diffDays < 30 && diffDays > 0;
+  if (diffDays <= 0) return 'expired';
+  if (diffDays <= 15) return 'expiring-soon';
+  return 'normal';
+}
+
+function validatePrices(purchase, sale) {
+  if (purchase <= 0) return false;
+  if (sale <= purchase) return false;
+  return true;
 }
 
 // Toast component
@@ -154,8 +162,8 @@ function RSSIIndicator({ rssi, connected }) {
 // Onboarding component
 function Onboarding({ onComplete }) {
   const [formData, setFormData] = useState({
-    user: '',
     bodega: '',
+    operators: ['', '', ''],
     currency: 'S/',
     columns: DEFAULT_COLUMNS.filter(col => col.required).map(col => col.key)
   });
@@ -174,11 +182,16 @@ function Onboarding({ onComplete }) {
   
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.user.trim() || !formData.bodega.trim()) {
-      alert('Por favor completa todos los campos requeridos');
+    if (!formData.bodega.trim() || formData.operators.some(op => !op.trim())) {
+      alert('Por favor completa el nombre de la bodega y los 3 trabajadores');
       return;
     }
-    onComplete(formData);
+    // Asignar operadores a pulseras
+    const devicesWithOperators = SIMULATED_DEVICES.map((device, index) => ({
+      ...device,
+      operator: formData.operators[index]
+    }));
+    onComplete({ ...formData, devices: devicesWithOperators });
   };
   
   return (
@@ -193,18 +206,6 @@ function Onboarding({ onComplete }) {
         
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Nombre del Bodeguero *</label>
-            <input
-              className="form-control"
-              type="text"
-              value={formData.user}
-              onChange={(e) => setFormData(prev => ({ ...prev, user: e.target.value }))}
-              placeholder="Ej: Juan Pérez"
-              required
-            />
-          </div>
-          
-          <div className="form-group">
             <label className="form-label">Nombre de la Bodega *</label>
             <input
               className="form-control"
@@ -214,6 +215,29 @@ function Onboarding({ onComplete }) {
               placeholder="Ej: Bodega Central"
               required
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Trabajadores (3 pulseras disponibles) *</label>
+            {formData.operators.map((operator, index) => (
+              <div key={index} style={{ marginBottom: '8px' }}>
+                <input
+                  className="form-control"
+                  type="text"
+                  value={operator}
+                  onChange={(e) => {
+                    const newOperators = [...formData.operators];
+                    newOperators[index] = e.target.value;
+                    setFormData(prev => ({ ...prev, operators: newOperators }));
+                  }}
+                  placeholder={`Trabajador ${index + 1}`}
+                  required
+                />
+              </div>
+            ))}
+            <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+              Ingresa el nombre de los 3 trabajadores que usarán las pulseras
+            </div>
           </div>
           
           <div className="form-group">
@@ -396,6 +420,19 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
       alert('⚠️ Debes conectar un dispositivo primero');
       return;
     }
+
+    const purchase = parseFloat(formData.purchasePrice) || 0;
+    const sale = parseFloat(formData.salePrice) || 0;
+
+    if (purchase <= 0) {
+      alert('El precio de compra debe ser mayor a 0');
+      return;
+    }
+
+    if (formData.type !== 'devolucion' && sale <= purchase) {
+      alert('El precio de venta debe ser mayor al precio de compra');
+      return;
+    }
     
     const payload = {
       event: formData.type,
@@ -488,45 +525,18 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
       
       <div className="tabs">
         <button 
-          className={`tab ${activeTab === 'json' ? 'tab--active' : ''}`}
-          onClick={() => setActiveTab('json')}
-        >
-          📄 JSON
-        </button>
-        <button 
           className={`tab ${activeTab === 'form' ? 'tab--active' : ''}`}
           onClick={() => setActiveTab('form')}
         >
-          📝 Formulario
+          📝 Registro Manual
         </button>
         <button 
           className={`tab ${activeTab === 'auto' ? 'tab--active' : ''}`}
           onClick={() => setActiveTab('auto')}
         >
-          🤖 Automático
+          🤖 Simulación Automática
         </button>
       </div>
-      
-      {activeTab === 'json' && (
-        <div>
-          <textarea
-            className="form-control"
-            rows={10}
-            value={jsonInput}
-            onChange={(e) => setJsonInput(e.target.value)}
-            placeholder={JSON.stringify(examplePayload, null, 2)}
-            style={{ fontFamily: 'monospace', fontSize: '12px' }}
-          />
-          <button 
-            className="btn btn--primary btn--full-width"
-            onClick={handleProcessJSON}
-            disabled={!connected || !jsonInput.trim()}
-            style={{ marginTop: '8px' }}
-          >
-            📤 Procesar JSON
-          </button>
-        </div>
-      )}
       
       {activeTab === 'form' && (
         <form onSubmit={handleFormSubmit}>
@@ -794,9 +804,9 @@ function AddProductForm({ onAdd }) {
 }
 
 // Inventory Table component
-function InventoryTable({ batches, products, settings, onRefresh, onExport, onDailyReport, onAddProduct }){
+function InventoryTable({ batches, products, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState('batches'); // 'batches' or 'products'
+  const [viewMode, setViewMode] = useState('ventas'); // 'ventas' or 'compras'
   const [sortField, setSortField] = useState('sku');
   const [sortDir, setSortDir] = useState('asc');
   
@@ -938,6 +948,34 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
         </button>
       </div>
       
+      {/* Leyenda de colores */}
+      <div style={{ marginBottom: '16px', padding: '12px', background: 'var(--color-bg-1)', borderRadius: '8px' }}>
+        <h4 style={{ marginBottom: '8px' }}>Leyenda de Estados:</h4>
+        <div style={{ display: 'flex', gap: '16px', fontSize: '14px' }}>
+          <div>⚫ Normal: Producto activo</div>
+          <div style={{ color: '#ffd700' }}>🟡 Por vencerse (15 días)</div>
+          <div style={{ color: 'red' }}>🔴 Vencido</div>
+          <div style={{ opacity: 0.5 }}>⚪ Devuelto</div>
+        </div>
+      </div>
+
+      {/* Vista switcher */}
+      <div style={{ marginBottom: '16px' }}>
+        <button 
+          className={`btn ${viewMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
+          onClick={() => setViewMode('ventas')}
+          style={{ marginRight: '8px' }}
+        >
+          💰 Ventas
+        </button>
+        <button 
+          className={`btn ${viewMode === 'compras' ? 'btn--primary' : 'btn--outline'}`}
+          onClick={() => setViewMode('compras')}
+        >
+          📦 Compras y Devoluciones
+        </button>
+      </div>
+
       {/* Table */}
       <div className="table-container">
         <table className="inventory-table">
@@ -958,6 +996,7 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
                 </th>
               ))}
               <th>Valor Total</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -977,47 +1016,69 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
               sortedBatches.map(batch => {
                 const product = products.find(p => p.sku === batch.product_sku) || {};
                 const isZeroStock = (Number(batch.quantity) || 0) === 0;
-                const isExpiring = isExpiringSoon(batch.expiry);
+                const expiryStatus = checkExpiry(batch.expiry);
+                const isReturned = batch.lot?.startsWith('DEV-') || batch.lot?.startsWith('UNDO-');
+                const rowStyle = {
+                  color: expiryStatus === 'expired' ? 'red' : 
+                         expiryStatus === 'expiring-soon' ? '#ffd700' : 'inherit',
+                  opacity: isReturned ? 0.5 : 1
+                };
+
+                // Filtrar por vista
+                if (viewMode === 'ventas' && (isReturned || batch.lot?.startsWith('INIT-'))) {
+                  return null;
+                }
+                if (viewMode === 'compras' && !isReturned && !batch.lot?.startsWith('INIT-')) {
+                  return null;
+                }
 
                 // Build cells in the same order as visibleColumns to keep headers aligned
                 const cells = visibleColumns.map(col => {
                   switch (col.key) {
                     case 'sku':
                       return (
-                        <td key={`sku-${batch.id}`}><strong>{batch.product_sku || '-'}</strong></td>
+                        <td key={`sku-${batch.id}`} style={rowStyle}><strong>{batch.product_sku || '-'}</strong></td>
                       );
                     case 'name':
                       return (
-                        <td key={`name-${batch.id}`}>{product.name || '-'}</td>
+                        <td key={`name-${batch.id}`} style={rowStyle}>{product.name || '-'}</td>
                       );
                     case 'category':
                       return (
-                        <td key={`category-${batch.id}`}>{product.category || '-'}</td>
+                        <td key={`category-${batch.id}`} style={rowStyle}>{product.category || '-'}</td>
                       );
                     case 'lot':
                       return (
-                        <td key={`lot-${batch.id}`}>{batch.lot || '-'}</td>
+                        <td key={`lot-${batch.id}`} style={rowStyle}>{batch.lot || '-'}</td>
                       );
                     case 'expiry':
                       return (
-                        <td key={`expiry-${batch.id}`} className={isExpiring ? 'expiry-warning' : ''}>
-                          {formatDate(batch.expiry)}{isExpiring && ' ⚠️'}
+                        <td key={`expiry-${batch.id}`} style={rowStyle}>
+                          {formatDate(batch.expiry)}
+                          {expiryStatus === 'expiring-soon' && ' ⚠️'}
+                          {expiryStatus === 'expired' && ' ❌'}
                         </td>
                       );
                     case 'quantity':
                       return (
-                        <td key={`quantity-${batch.id}`}><strong>{Number(batch.quantity || 0).toLocaleString()}</strong></td>
+                        <td key={`quantity-${batch.id}`} style={rowStyle}>
+                          <strong>{Number(batch.quantity || 0).toLocaleString()}</strong>
+                        </td>
                       );
                     case 'purchase_price':
                       return (
-                        <td key={`purchase_price-${batch.id}`}>{settings?.currency || 'S/'}{Number(batch.purchase_price || 0).toFixed(2)}</td>
+                        <td key={`purchase_price-${batch.id}`} style={rowStyle}>
+                          {settings?.currency || 'S/'}{Number(batch.purchase_price || 0).toFixed(2)}
+                        </td>
                       );
                     case 'sale_price':
                       return (
-                        <td key={`sale_price-${batch.id}`}>{settings?.currency || 'S/'}{Number(product.default_sale_price || 0).toFixed(2)}</td>
+                        <td key={`sale_price-${batch.id}`} style={rowStyle}>
+                          {settings?.currency || 'S/'}{Number(product.default_sale_price || 0).toFixed(2)}
+                        </td>
                       );
                     default:
-                      return (<td key={`${col.key}-${batch.id}`}>-</td>);
+                      return (<td key={`${col.key}-${batch.id}`} style={rowStyle}>-</td>);
                   }
                 });
 
@@ -1026,10 +1087,21 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
                 return (
                   <tr key={batch.id} className={isZeroStock ? 'inventory-table--zero-stock' : ''}>
                     {cells}
-                    <td>
+                    <td style={rowStyle}>
                       <strong>
                         {settings?.currency || 'S/'}{rowTotal.toFixed(2)}
                       </strong>
+                    </td>
+                    <td>
+                      {!isReturned && !batch.lot?.startsWith('INIT-') && viewMode === 'ventas' && (
+                        <button 
+                          className="btn btn--outline btn--sm"
+                          onClick={() => onReturn(batch)}
+                          title="Devolver producto"
+                        >
+                          🔄 Devolver
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -1545,9 +1617,23 @@ function App() {
       <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '12px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h1 style={{ fontSize: '20px', margin: '0' }}>🏢 {settings.bodega}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <h1 style={{ fontSize: '20px', margin: '0' }}>🏢</h1>
+              <input
+                type="text"
+                value={settings.bodega}
+                onChange={(e) => {
+                  const newSettings = { ...settings, bodega: e.target.value };
+                  setSettings(newSettings);
+                  db.put('settings', { key: 'onboarding', value: newSettings });
+                }}
+                className="form-control"
+                style={{ fontSize: '20px', padding: '4px 8px' }}
+                placeholder="Nombre de la bodega"
+              />
+            </div>
             <p style={{ margin: '0', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
-              Bodeguero: {settings.user} • Moneda: {settings.currency}
+              Moneda: {settings.currency}
             </p>
           </div>
           <div>
