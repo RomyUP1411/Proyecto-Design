@@ -102,8 +102,10 @@ function Onboarding({ onComplete }){
 
   const submit = (e) => {
     e.preventDefault();
-    if (!formData.bodega.trim()) { alert('Nombre de la bodega requerido'); return; }
-    if (onComplete) onComplete(formData);
+    // Allow proceeding even if bodega is empty: use a sensible default
+    const payload = { ...formData };
+    if (!String(payload.bodega || '').trim()) payload.bodega = 'Bodega Principal';
+    if (onComplete) onComplete(payload);
   };
 
   return (
@@ -143,7 +145,15 @@ function Onboarding({ onComplete }){
             </div>
           </div>
 
-          <button className="btn btn--primary" type="submit">🚀 Comenzar</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn--primary" type="submit">🚀 Comenzar</button>
+            <button type="button" className="btn btn--outline" onClick={() => {
+              // Quick start: use defaults and continue
+              const quick = { ...formData };
+              if (!String(quick.bodega || '').trim()) quick.bodega = 'Bodega Principal';
+              if (onComplete) onComplete(quick);
+            }}>⚡ Comenzar rápido</button>
+          </div>
         </form>
       </div>
     </div>
@@ -811,8 +821,8 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
           <div className="stat-label">Lotes Activos</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">{totalItems.toLocaleString()}</div>
-          <div className="stat-label">Total Items</div>
+          <div className="stat-value">{settings?.currency || 'S/'}{totalProfit.toFixed(2)}</div>
+          <div className="stat-label">Ganancia potencial</div>
         </div>
         <div className="stat-card">
           <div className="stat-value">{settings?.currency || 'S/'}{totalValue.toFixed(2)}</div>
@@ -1115,7 +1125,8 @@ function App() {
   const [activeView, setActiveView] = useState('dashboard');
   
   // Device state
-  const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]);
+  const [devices, setDevices] = useState(SIMULATED_DEVICES);
+  const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]); // will be updated after onboarding if operators provided
   const [connected, setConnected] = useState(false);
   const [simSinceReset, setSimSinceReset] = useState(0);
   
@@ -1257,6 +1268,17 @@ function App() {
     // If DB isn't ready yet, accept the settings in memory so the UI continues
     setSettings(formData);
     addToast('success', '¡Bienvenido!', 'Configuración aplicada (se persistirá automáticamente).');
+
+    // Map provided operators (up to 3) to the simulated devices so pulseras quedan asignadas
+    try {
+      const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: (formData.operators && formData.operators[i]) ? formData.operators[i] : d.operator }));
+      setDevices(mapped);
+      // If selectedDevice is one of the simulated ones, update it to get the operator
+      const updatedSelected = mapped.find(md => md.id === (selectedDevice && selectedDevice.id)) || mapped[0];
+      if (updatedSelected) setSelectedDevice(updatedSelected);
+    } catch (e) {
+      console.error('No se pudo mapear operadores a dispositivos:', e);
+    }
 
     try {
       if (db) {
@@ -1811,7 +1833,7 @@ function App() {
               onConnect={handleConnect}
               onDisconnect={handleDisconnect}
               onDeviceChange={handleDeviceChange}
-              availableDevices={SIMULATED_DEVICES}
+              availableDevices={devices}
             />
             
             {/* Center Panel - Simulation */}
