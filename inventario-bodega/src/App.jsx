@@ -19,16 +19,9 @@ const DEFAULT_COLUMNS = [
   { key: 'sale_price', label: 'Precio Venta', required: false }
 ];
 
+// Reemplazar SIMULATED_DEVICES por UNO solo (simple)
 const SIMULATED_DEVICES = [
-  { id: 'PUL-001', name: 'Pulsera-001', rssi: -50, operator: '' },
-  { id: 'PUL-002', name: 'Pulsera-002', rssi: -60, operator: '' },
-  { id: 'PUL-003', name: 'Pulsera-003', rssi: -70, operator: '' }
-];
-
-const SAMPLE_PRODUCTS = [
-  { sku: 'GALX-001', name: 'Galletas X', category: 'Panadería' },
-  { sku: 'LECH-001', name: 'Leche Entera', category: 'Lácteos' },
-  { sku: 'PAN-001', name: 'Pan Bimbo', category: 'Panadería' }
+  { id: 'PUL-001', name: 'Pulsera-Principal', rssi: -50, operator: '' }
 ];
 
 // Helpers
@@ -120,8 +113,31 @@ function Toast({ toasts, removeToast }){
 }
 
 // Minimal Onboarding component (collect bodega, currency, operators and columns)
-function Onboarding({ onComplete }){
-  const [formData, setFormData] = useState({ bodega: '', currency: CURRENCIES[0], columns: DEFAULT_COLUMNS.map(c => c.key), operators: ['', '', ''] });
+function Onboarding({ onComplete, initialData }) {
+  const init = () => {
+    const defaults = {
+      bodega: '',
+      currency: CURRENCIES[0],
+      columns: DEFAULT_COLUMNS.map(c => c.key),
+      operators: ['', '', '']
+    };
+    if (!initialData) return defaults;
+    return {
+      bodega: initialData.bodega || defaults.bodega,
+      currency: initialData.currency || defaults.currency,
+      columns: initialData.columns || defaults.columns,
+      operators: initialData.operators || defaults.operators
+    };
+  };
+
+  const [formData, setFormData] = useState(init);
+
+  useEffect(() => {
+    // Si initialData cambia (cuando abrimos reconfigurar), actualizar formulario
+    if (initialData) {
+      setFormData(init());
+    }
+  }, [initialData]);
 
   const handleColumnToggle = (key) => {
     setFormData(prev => ({ ...prev, columns: prev.columns.includes(key) ? prev.columns.filter(k=>k!==key) : [...prev.columns, key] }));
@@ -129,7 +145,6 @@ function Onboarding({ onComplete }){
 
   const submit = (e) => {
     e.preventDefault();
-    // Allow proceeding even if bodega is empty: use a sensible default
     const payload = { ...formData };
     if (!String(payload.bodega || '').trim()) payload.bodega = 'Bodega Principal';
     if (onComplete) onComplete(payload);
@@ -175,7 +190,6 @@ function Onboarding({ onComplete }){
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn--primary" type="submit">🚀 Comenzar</button>
             <button type="button" className="btn btn--outline" onClick={() => {
-              // Quick start: use defaults and continue
               const quick = { ...formData };
               if (!String(quick.bodega || '').trim()) quick.bodega = 'Bodega Principal';
               if (onComplete) onComplete(quick);
@@ -776,10 +790,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
   const [searchTerm, setSearchTerm] = useState('');
   // sectionMode controla la sección principal: 'ventas' o 'inventario'
   const [sectionMode, setSectionMode] = useState('inventario');
-  const [viewMode, setViewMode] = useState('ingresos'); // Valores posibles:
-  // Inventario: 'ingresos', 'devoluciones_compra', 'stock'
-  // Ventas: 'registro_ventas', 'devoluciones_venta', 'historial'
-
+  
   const [sortField, setSortField] = useState('sku');
   const [sortDir, setSortDir] = useState('asc');
   
@@ -968,15 +979,6 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
           style={{ width: '260px', padding: '8px', fontSize: '14px' }}
         />
         
-        <select
-          className="form-control"
-          value={viewMode}
-          onChange={(e) => setViewMode(e.target.value)}
-        >
-          <option value="batches">📋 Por Lotes</option>
-          <option value="products">📊 Por Productos</option>
-        </select>
-        
         <button className="btn btn--outline btn--sm" onClick={onRefresh}>
           🔄 Refrescar
         </button>
@@ -1006,62 +1008,15 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
             className={`btn ${sectionMode === 'inventario' ? 'btn--primary' : 'btn--outline'}`}
             onClick={() => setSectionMode('inventario')}
           >
-            📦 Gestión de Inventario
+            📦 Mostrar Inventario
           </button>
           <button 
             className={`btn ${sectionMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
             onClick={() => setSectionMode('ventas')}
           >
-            💰 Registro de Ventas
+            💰 Mostrar Ventas
           </button>
         </div>
-        
-        {/* Subtabs según la sección */}
-        {sectionMode === 'inventario' && (
-          <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-            <button 
-              className={`btn btn--sm ${viewMode === 'ingresos' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('ingresos')}
-            >
-              � Ingresos
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'devoluciones_compra' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('devoluciones_compra')}
-            >
-              ↩️ Devoluciones a Proveedor
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'stock' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('stock')}
-            >
-              📊 Stock Actual
-            </button>
-          </div>
-        )}
-        
-        {sectionMode === 'ventas' && (
-          <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-            <button 
-              className={`btn btn--sm ${viewMode === 'registro_ventas' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('registro_ventas')}
-            >
-              💳 Registro de Ventas
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'devoluciones_venta' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('devoluciones_venta')}
-            >
-              ↩️ Devoluciones de Clientes
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'historial' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('historial')}
-            >
-              📜 Historial
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -1281,6 +1236,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
 function App() {
   const [db, setDb] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [prevOnboarding, setPrevOnboarding] = useState(null); // <-- nuevo: almacenar settings al reconfigurar
   const [activeView, setActiveView] = useState('dashboard');
   
   // Device state
@@ -1308,9 +1264,34 @@ function App() {
         const savedSettings = await database.get('settings', 'onboarding');
         if (savedSettings) {
           setSettings(savedSettings.value);
+          // Map operators to device and auto-connect
+          const ops = savedSettings.value?.operators || [];
+          const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: ops[i] || d.operator }));
+          setDevices(mapped);
+          setSelectedDevice(mapped[0]);
+          // Auto-connect on load
+          setConnected(true);
+          addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
+          setEvents(prev => [{
+            id: Date.now(),
+            type: 'system',
+            sku: 'SYSTEM',
+            name: 'Sensor de ventas conectado automáticamente',
+            quantity: 0,
+            timestamp: nowISO(),
+            device_id: mapped[0].id,
+            operator: 'system'
+          }, ...prev.slice(0, 19)]);
+        } else {
+          // if no saved settings, check local pending
+          const raw = localStorage.getItem('pending_onboarding');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            setSettings(parsed);
+          }
         }
       } catch (error) {
-        console.log('No saved settings found');
+        console.log('No saved settings found', error);
       }
       
       // Load data
@@ -1424,20 +1405,29 @@ function App() {
   };
   
   const handleOnboardingComplete = async (formData) => {
-    // If DB isn't ready yet, accept the settings in memory so the UI continues
     setSettings(formData);
     addToast('success', '¡Bienvenido!', 'Configuración aplicada (se persistirá automáticamente).');
 
-    // Map provided operators (up to 3) to the simulated devices so pulseras quedan asignadas
+    // Map provided operators to the single device
     try {
       const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: (formData.operators && formData.operators[i]) ? formData.operators[i] : d.operator }));
       setDevices(mapped);
-      // If selectedDevice is one of the simulated ones, update it to get the operator
-      const updatedSelected = mapped.find(md => md.id === (selectedDevice && selectedDevice.id)) || mapped[0];
+      const updatedSelected = mapped[0];
       if (updatedSelected) setSelectedDevice(updatedSelected);
-    } catch (e) {
-      console.error('No se pudo mapear operadores a dispositivos:', e);
-    }
+      // Auto-connect on onboarding complete
+      setConnected(true);
+      addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
+      setEvents(prev => [{
+        id: Date.now(),
+        type: 'system',
+        sku: 'SYSTEM',
+        name: 'Sensor de ventas conectado',
+        quantity: 0,
+        timestamp: nowISO(),
+        device_id: updatedSelected.id,
+        operator: 'system'
+      }, ...prev.slice(0, 19)]);
+    } catch (e) { /* ignore */ }
 
     try {
       if (db) {
@@ -1447,805 +1437,66 @@ function App() {
         });
         addToast('success', 'Configuración guardada', 'La configuración fue persistida en la base de datos');
       } else {
-        // Save to localStorage as fallback; will be written when DB initializes
         try { localStorage.setItem('pending_onboarding', JSON.stringify(formData)); } catch (e) { /* ignore */ }
       }
     } catch (error) {
-      console.error('Error saving settings:', error);
       addToast('warning', 'Persistencia pendiente', 'No se pudo guardar ahora; se intentará al inicializar la BD');
     }
   };
 
-  // When DB becomes available, persist any pending onboarding saved to localStorage
+  // Cuando se monta la app, conectar si ya hay settings guardados
   useEffect(() => {
-    if (!db) return;
-    try {
-      const raw = localStorage.getItem('pending_onboarding');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        db.put('settings', { key: 'onboarding', value: parsed }).then(() => {
-          localStorage.removeItem('pending_onboarding');
-          addToast('success', 'Configuración persistida', 'La configuración inicial fue guardada en la BD');
-        }).catch(err => {
-          console.error('No se pudo persistir onboarding pendiente:', err);
-        });
+    const connectOnLoad = async () => {
+      if (!db) return;
+      try {
+        const savedSettings = await db.get('settings', 'onboarding');
+        if (savedSettings?.value) {
+          setSettings(savedSettings.value);
+          setConnected(true);
+          addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
+        }
+      } catch (e) {
+        console.error('Error auto-conectando:', e);
       }
-    } catch (e) {
-      console.error('Error al procesar pending_onboarding', e);
-    }
+    };
+    connectOnLoad();
   }, [db]);
   
-  const handleConnect = () => {
-    if (!selectedDevice?.operator) {
-      alert('No se puede conectar: asigna un operador a esta pulsera primero.');
-      return;
-    }
-    setConnected(true);
-    addToast('success', 'Conectado', `Pulsera ${selectedDevice.id} conectada (operador: ${selectedDevice.operator})`);
-    setEvents(prev => [{
-      id: Date.now(),
-      type: 'system',
-      sku: 'SYSTEM',
-      name: 'Conexión establecida',
-      quantity: 0,
-      timestamp: nowISO(),
-      device_id: selectedDevice.id,
-      operator: 'system'
-    }, ...prev.slice(0, 19)]);
+  // Header Reconfigurar: ya no borra BD, solo abre onboarding con datos actuales
+  // Reemplazar el handler dentro del JSX header por este (busca el botón "Reconfigurar" y sustituye su onClick)
+  // ...existing code...
+  // onClick del botón "Reconfigurar":
+  // before: mostraba prompts y podía resetear BD. Ahora:
+  const handleReconfigurar = () => {
+    setPrevOnboarding(settings || null); // pasar valores actuales al onboarding
+    setSettings(null); // mostrar onboarding para editar sin borrar BD
+    addToast('info', 'Reconfigurar', 'La configuración actual se cargará para edición (no se eliminarán datos).');
   };
-  
-  const handleDisconnect = () => {
-    setConnected(false);
-    addToast('warning', 'Desconectado', `Brazalete ${selectedDevice.id} desconectado`);
-    setEvents(prev => [{
-      id: Date.now(),
-      type: 'system',
-      sku: 'SYSTEM',
-      name: 'Conexión cerrada',
-      quantity: 0,
-      timestamp: nowISO(),
-      device_id: selectedDevice.id,
-      operator: 'system'
-    }, ...prev.slice(0, 19)]);
-  };
-  
-  const handleDeviceChange = (device) => {
-    if (connected) {
-      addToast('warning', 'Dispositivo ocupado', 'Desconecta primero para cambiar de dispositivo');
-      return;
-    }
-    setSelectedDevice(device);
-    addToast('info', 'Dispositivo seleccionado', `${device.name} seleccionado`);
-  };
-  
-  const handleProcessEvent = async (payload) => {
-    if (!db || !connected) {
-      addToast('error', 'Error', !db ? 'Base de datos no disponible' : 'Dispositivo no conectado');
-      return;
-    }
-    
-    try {
-      // Validar datos básicos
-      if (!payload.sku && !payload.barcode) {
-        addToast('error', 'Error', 'Se requiere SKU o código de barras');
-        return;
-      }
-      
-      if (!payload.name) {
-        addToast('error', 'Error', 'Se requiere nombre del producto');
-        return;
-      }
-      
-      // Base movement record con valores por defecto
-      const movement = {
-        type: payload.event,
-        sku: payload.sku || payload.barcode,
-        name: payload.name,
-        quantity: Math.max(1, payload.quantity || 0),
-        price: Math.max(0, payload.purchase_price || payload.sale_price || 0),
-        lot: payload.lot || `LOT-${Date.now()}`,
-        expiry: payload.expiry || null,
-        timestamp: payload.timestamp || nowISO(),
-        device_id: payload.device_id || selectedDevice.id,
-        operator: payload.operator || selectedDevice?.operator || settings?.user || 'Operador',
-        bodega: payload.bodega || settings?.bodega || 'Bodega Principal'
-      };
+  // Asegúrate de reemplazar la llamada inline por: onClick={handleReconfigurar}
 
-      if (payload.event === 'ingreso') {
-        // Transacción de ingreso a inventario
-        const tx = db.transaction(['products', 'batches', 'movements'], 'readwrite');
-        
-        // Create or update product
-        const productStore = tx.objectStore('products');
-        const existingProduct = await productStore.get(movement.sku);
-        
-        if (!existingProduct) {
-          await productStore.put({
-            sku: movement.sku,
-            name: movement.name,
-            category: payload.category || 'Sin categoría',
-            default_purchase_price: movement.price,
-            default_sale_price: payload.sale_price || movement.price * 1.5,
-            created_at: nowISO()
-          });
-        }
-        
-        // Create batch con INIT- para identificar stock inicial
-        await tx.objectStore('batches').add({
-          product_sku: movement.sku,
-          lot: movement.lot || `INIT-${Date.now()}`,
-          expiry: movement.expiry,
-          quantity: movement.quantity,
-          purchase_price: movement.price,
-          created_at: nowISO()
-        });
-        
-        // Registrar movimiento
-        await tx.objectStore('movements').add({
-          ...movement,
-          type: 'ingreso_inventario'
-        });
-        
-        await tx.done;
-        addToast('success', 'Ingreso procesado', 
-          `${movement.quantity} unidades de ${movement.name} agregadas al inventario`);
-        
-      } else if (payload.event === 'venta') {
-        // Transacción de venta 
-        const tx = db.transaction(['sales', 'batches', 'movements'], 'readwrite');
-        
-        // Verificar stock
-        const batchStore = tx.objectStore('batches');
-        const allBatches = await batchStore.getAll();
-        const totalStock = allBatches
-          .filter(b => b.product_sku === movement.sku && !b.lot?.startsWith('DEV-'))
-          .reduce((s, b) => s + (b.quantity || 0), 0);
-          
-        if (movement.quantity > totalStock) {
-          addToast('error', 'Venta denegada', 
-            `Stock insuficiente: intento vender ${movement.quantity} pero solo hay ${totalStock}`);
-          await tx.done;
-          return;
-        }
-        
-        // Implementar FIFO (PEPS) para descontar stock
-        const productBatches = allBatches
-          .filter(batch => 
-            batch.product_sku === movement.sku && 
-            batch.quantity > 0 &&
-            !batch.lot?.startsWith('DEV-')
-          )
-          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        
-        let remaining = movement.quantity;
-        const batchesUsed = [];
-        
-        for (const batch of productBatches) {
-          if (remaining <= 0) break;
-          
-          const take = Math.min(batch.quantity, remaining);
-          batch.quantity -= take;
-          remaining -= take;
-          
-          batchesUsed.push({
-            batchId: batch.id,
-            quantity: take,
-            purchase_price: batch.purchase_price
-          });
-          
-          await batchStore.put(batch);
-        }
-        
-        // Registrar venta
-        const sale = await tx.objectStore('sales').add({
-          ...movement,
-          batches_used: batchesUsed,
-          total: movement.quantity * movement.price,
-          status: 'completed'
-        });
-        
-        // Registrar movimiento
-        await tx.objectStore('movements').add({
-          ...movement,
-          type: 'venta',
-          sale_id: sale,
-          batches_used: batchesUsed
-        });
-        
-        await tx.done;
-        addToast('success', 'Venta registrada',
-          `${movement.quantity} unidades de ${movement.name} vendidas`);
-        
-      } else if (payload.event === 'devolucion') {
-        // Verificar ventas previas
-        const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
-        
-        const salesStore = tx.objectStore('sales');
-        const sales = await salesStore.getAll();
-        const returnsStore = tx.objectStore('returns');
-        const returns = await returnsStore.getAll();
-        
-        // Calcular ventas y devoluciones totales
-        const soldTotal = sales
-          .filter(s => s.sku === movement.sku && s.status === 'completed')
-          .reduce((sum, s) => sum + s.quantity, 0);
-          
-        const returnedTotal = returns  
-          .filter(r => r.sku === movement.sku)
-          .reduce((sum, r) => sum + r.quantity, 0);
-          
-        if (movement.quantity > (soldTotal - returnedTotal)) {
-          addToast('error', 'Devolución denegada',
-            `No hay suficientes ventas sin devolver para ${movement.quantity} unidades`);
-          await tx.done;
-          return;
-        }
-        
-        // Registrar devolución
-        const returnId = await returnsStore.add({
-          ...movement,
-          original_sale_id: null, // No rastreamos la venta específica
-          status: 'completed'
-        });
-        
-        // Crear nuevo lote para producto devuelto
-        await tx.objectStore('batches').add({
-          product_sku: movement.sku,
-          lot: `DEV-${returnId}`,
-          expiry: movement.expiry,
-          quantity: movement.quantity,
-          purchase_price: movement.price,
-          created_at: nowISO(),
-          return_id: returnId
-        });
-        
-        // Registrar movimiento
-        await tx.objectStore('movements').add({
-          ...movement,
-          type: 'devolucion_venta',
-          return_id: returnId
-        });
-        
-        await tx.done;
-        addToast('success', 'Devolución procesada',
-          `${movement.quantity} unidades de ${movement.name} devueltas al inventario`);
-      }
-      
-      // Update events feed con id único y tipos específicos según la operación
-      const eventType = payload.event === 'ingreso' ? 'ingreso_inventario' :
-                       payload.event === 'venta' ? 'venta' :
-                       'devolucion_venta';
-                       
-      setEvents(prev => [{
-        id: Date.now(),
-        ...movement,
-        type: eventType,
-        timestamp: nowISO()
-      }, ...prev.slice(0, 19)]);
-      
-      // Refresh data
-      await refreshData();
-      
-    } catch (error) {
-      console.error('Error processing event:', error);
-      addToast('error', 'Error', 'No se pudo procesar el evento: ' + error.message);
-    }
-  };
-  
-  const handleUndoSale = async (saleEvent) => {
-    if (!db) return;
-    
-    try {
-      const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
-      
-      // Verificar que la venta existe y no está anulada
-      const salesStore = tx.objectStore('sales');
-      const sale = await salesStore.get(saleEvent.id);
-      
-      if (!sale || sale.status === 'cancelled') {
-        addToast('error', 'Error', 'No se encontró la venta o ya fue anulada');
-        await tx.done;
-        return;
-      }
-      
-      // Registrar devolución
-      const returnsStore = tx.objectStore('returns');
-      const returnId = await returnsStore.add({
-        sku: saleEvent.sku,
-        name: saleEvent.name,
-        quantity: saleEvent.quantity,
-        price: sale.price || 0,
-        timestamp: nowISO(),
-        device_id: saleEvent.device_id,
-        operator: `${settings?.user || 'Usuario'} (anulación)`,
-        original_sale_id: saleEvent.id,
-        status: 'completed'
-      });
-      
-      // Crear lote especial para devolución
-      const batchesStore = tx.objectStore('batches');
-      await batchesStore.add({
-        product_sku: saleEvent.sku,
-        lot: `UNDO-${returnId}`,
-        quantity: saleEvent.quantity,
-        purchase_price: sale.batches_used?.[0]?.purchase_price || 0, // Usar precio original si está disponible
-        expiry: null,
-        created_at: nowISO(),
-        return_id: returnId
-      });
-      
-      // Marcar venta como anulada
-      sale.status = 'cancelled';
-      await salesStore.put(sale);
-      
-      // Registrar movimiento
-      await tx.objectStore('movements').add({
-        type: 'anulacion_venta',
-        sku: saleEvent.sku,
-        name: saleEvent.name,
-        quantity: saleEvent.quantity,
-        price: sale.price || 0,
-        timestamp: nowISO(),
-        device_id: saleEvent.device_id,
-        operator: `${settings?.user || 'Usuario'} (anulación)`,
-        sale_id: saleEvent.id,
-        return_id: returnId
-      });
-      
-      await tx.done;
-      
-      addToast('success', 'Venta anulada', 
-        `Se anuló la venta de ${saleEvent.quantity} unidades de ${saleEvent.name}`);
-      
-      // Refrescar datos
-      await refreshData();
-      
-    } catch (error) {
-      console.error('Error anulando venta:', error);
-      addToast('error', 'Error', 'No se pudo anular la venta: ' + error.message);
-    }
-  };
+  // ...existing code...
 
-  // Generic return handler used from UI (ventas o inventario)
-  const handleReturn = async (batch, mode = 'ventas') => {
-    if (!db) return;
+  // InventoryTable: simplificar UI para mostrar SOLO dos botones grandes para alternar sección
+  // Reemplazar la declaración de InventoryTable por la versión simplificada (mantiene lógica de filas, pero elimina subtabs y viewMode)
+  // Busca "function InventoryTable({ batches, products, movements, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){" y sustituye su contenido por lo siguiente:
+  // (Aquí se muestra una versión reducida de la parte de UI: botones "Mostrar Inventario" / "Mostrar Ventas" y filtrado por sectionMode)
+  // ...existing code...
+  // Nota: Mantén las funciones auxiliares (checkExpiry, formatDate, etc.) ya definidas arriba.
 
-    try {
-      if (mode === 'ventas') {
-        // Devolver venta: crear registro en returns y devolver al inventario
-        const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
-        const product = products.find(p => p.sku === batch.product_sku) || {};
+  // Dentro del JSX donde se renderiza InventoryTable, reemplaza los controles de subtabs por:
+  // <div style={{ marginBottom: '16px' }}>
+  //   <div style={{ display: 'flex', gap: '8px' }}>
+  //     <button className={`btn ${sectionMode === 'inventario' ? 'btn--primary' : 'btn--outline'}`} onClick={() => setSectionMode('inventario')}>📦 Mostrar Inventario</button>
+  //     <button className={`btn ${sectionMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`} onClick={() => setSectionMode('ventas')}>💰 Mostrar Ventas</button>
+  //   </div>
+  // </div>
+  //
+  // Y asegúrate de eliminar el estado viewMode y cualquier referencia a él en los filtros de filas; usar solo sectionMode para decidir qué filas mostrar:
+  // - sectionMode === 'inventario' -> mostrar lotes sin prefijos DEV-, UNDO- (stock real / ingresos)
+  // - sectionMode === 'ventas' -> mostrar lotes con lot que empiece con 'DEV-SALE-' o 'UNDO-' (ventas y devoluciones relacionadas)
+  //
+  // El botón de devolución sigue llamando onReturn(batch, sectionMode) para saber si devolver venta o compra.
 
-        // Registrar devolución
-        const returnId = await tx.objectStore('returns').add({
-          sku: batch.product_sku,
-          name: product.name || batch.product_sku,
-          quantity: batch.quantity,
-          price: batch.purchase_price,
-          timestamp: nowISO(),
-          device_id: selectedDevice?.id,
-          operator: selectedDevice?.operator || settings?.user || 'Usuario',
-          original_batch_id: batch.id,
-          status: 'completed'
-        });
-
-        // Crear nuevo lote para los productos devueltos
-        await tx.objectStore('batches').add({
-          product_sku: batch.product_sku,
-          lot: `DEV-SALE-${returnId}`,
-          expiry: batch.expiry,
-          quantity: batch.quantity,
-          purchase_price: batch.purchase_price,
-          created_at: nowISO(),
-          return_id: returnId,
-          status: 'returned'
-        });
-
-        // Registrar movimiento
-        await tx.objectStore('movements').add({
-          type: 'devolucion_venta',
-          sku: batch.product_sku,
-          name: product.name || batch.product_sku,
-          quantity: batch.quantity,
-          price: batch.purchase_price,
-          lot: `DEV-SALE-${returnId}`,
-          timestamp: nowISO(),
-          device_id: selectedDevice?.id,
-          operator: selectedDevice?.operator || settings?.user || 'Usuario',
-          return_id: returnId
-        });
-
-        await tx.done;
-        addToast('success', 'Venta devuelta', 
-          `${batch.quantity} unidades de ${product.name} devueltas al inventario`);
-
-      } else {
-        // Devolver compra: marcar lote como devuelto y registrar movimiento
-        const tx = db.transaction(['batches', 'returns', 'movements'], 'readwrite');
-        
-        // Verificar que el lote existe y no está ya devuelto
-        const batchStore = tx.objectStore('batches');
-        const existing = await batchStore.get(batch.id);
-        
-        if (!existing) {
-          addToast('error', 'Error', 'Lote no encontrado');
-          await tx.done;
-          return;
-        }
-
-        if (existing.status === 'returned') {
-          addToast('error', 'Error', 'Este lote ya fue devuelto');
-          await tx.done;
-          return;
-        }
-
-        // Registrar devolución
-        const returnId = await tx.objectStore('returns').add({
-          sku: existing.product_sku,
-          name: (products.find(p => p.sku === existing.product_sku) || {}).name || existing.product_sku,
-          quantity: existing.quantity,
-          price: existing.purchase_price,
-          timestamp: nowISO(),
-          device_id: selectedDevice?.id,
-          operator: selectedDevice?.operator || settings?.user || 'Usuario',
-          original_batch_id: batch.id,
-          status: 'completed',
-          type: 'inventory_return'
-        });
-
-        // Marcar lote como devuelto
-        existing.lot = `DEV-INV-${returnId}`;
-        existing.status = 'returned';
-        existing.return_id = returnId;
-        existing.quantity = 0; // Vaciar stock
-        await batchStore.put(existing);
-
-        // Registrar movimiento
-        await tx.objectStore('movements').add({
-          type: 'devolucion_inventario',
-          sku: existing.product_sku,
-          name: (products.find(p => p.sku === existing.product_sku) || {}).name || existing.product_sku,
-          quantity: existing.quantity,
-          price: existing.purchase_price,
-          lot: existing.lot,
-          timestamp: nowISO(),
-          device_id: selectedDevice?.id,
-          operator: selectedDevice?.operator || settings?.user || 'Usuario',
-          return_id: returnId
-        });
-
-        await tx.done;
-        addToast('success', 'Compra devuelta', 
-          `El lote ${batch.lot} fue marcado como devuelto y removido del inventario`);
-      }
-
-      // Refrescar datos
-      await refreshData();
-
-    } catch (error) {
-      console.error('Return error:', error);
-      addToast('error', 'Error', 'No se pudo procesar la devolución: ' + error.message);
-    }
-  };
-  
-  const handleExportInventory = async () => {
-    setIsExporting(true);
-    
-    try {
-      const workbook = new ExcelJS.Workbook();
-      
-      // Inventory by batches sheet
-      const batchesSheet = workbook.addWorksheet('Inventario por Lotes');
-      batchesSheet.addRow(['SKU', 'Nombre', 'Categoría', 'Lote', 'Fecha Caducidad', 'Stock', 'Precio Compra', 'Precio Venta', 'Valor Total']);
-      
-      batches.forEach(batch => {
-        if (batch.quantity > 0) {
-          const product = products.find(p => p.sku === batch.product_sku) || {};
-          const valueTotal = (batch.quantity || 0) * (batch.purchase_price || 0);
-          
-          batchesSheet.addRow([
-            batch.product_sku,
-            product.name || '',
-            product.category || '',
-            batch.lot || '',
-            batch.expiry ? formatDate(batch.expiry) : '',
-            batch.quantity || 0,
-            batch.purchase_price || 0,
-            product.default_sale_price || 0,
-            valueTotal
-          ]);
-        }
-      });
-      
-      // Products summary sheet
-      const productsSheet = workbook.addWorksheet('Resumen por Producto');
-      productsSheet.addRow(['SKU', 'Nombre', 'Stock Total', 'Valor Total']);
-      
-      const productSummary = {};
-      batches.forEach(batch => {
-        if (batch.quantity > 0) {
-          if (!productSummary[batch.product_sku]) {
-            const product = products.find(p => p.sku === batch.product_sku) || {};
-            productSummary[batch.product_sku] = {
-              name: product.name || '',
-              totalStock: 0,
-              totalValue: 0
-            };
-          }
-          
-          productSummary[batch.product_sku].totalStock += batch.quantity || 0;
-          productSummary[batch.product_sku].totalValue += (batch.quantity || 0) * (batch.purchase_price || 0);
-        }
-      });
-      
-      Object.entries(productSummary).forEach(([sku, summary]) => {
-        productsSheet.addRow([sku, summary.name, summary.totalStock, summary.totalValue]);
-      });
-      
-      const buffer = await workbook.xlsx.writeBuffer();
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
-      saveAs(new Blob([buffer]), `inventario_actual_${timestamp}.xlsx`);
-      
-      addToast('success', 'Exportación completa', 'Archivo XLSX descargado exitosamente');
-      
-    } catch (error) {
-      console.error('Export error:', error);
-      addToast('error', 'Error de exportación', 'No se pudo generar el archivo XLSX');
-    }
-    
-    setIsExporting(false);
-  };
-  
-  const handleDailyReport = async () => {
-    setIsExporting(true);
-    
-    try {
-      // Generate inventory report
-      await handleExportInventory();
-      
-      // Generate movements report
-      const workbook = new ExcelJS.Workbook();
-      const movementsSheet = workbook.addWorksheet('Movimientos del Día');
-      
-      // Estilo para el encabezado
-      movementsSheet.addRow(['Timestamp', 'Tipo', 'SKU', 'Nombre', 'Cantidad', 'Precio', 'Lote', 'Operador', 'Pulsera', 'Estado']);
-      movementsSheet.getRow(1).font = { bold: true };
-      movementsSheet.getRow(1).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFE0E0E0' }
-      };
-      
-      // Añadir resumen por operador
-      const operatorSummary = workbook.addWorksheet('Resumen por Operador');
-      operatorSummary.addRow(['Operador', 'Pulsera', 'Total Ventas', 'Total Compras', 'Total Devoluciones']);
-      
-      // Filter today's movements
-      const today = new Date().toISOString().split('T')[0];
-      const todayMovements = movements.filter(mov => mov.timestamp.startsWith(today));
-      
-      // Procesar movimientos y crear resumen
-      const operatorStats = {};
-      
-      todayMovements
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        .forEach(mov => {
-          // Añadir movimiento a la hoja principal
-          movementsSheet.addRow([
-            formatDateTime(mov.timestamp),
-            mov.type,
-            mov.sku,
-            mov.name,
-            mov.quantity,
-            mov.price,
-            mov.lot || '',
-            mov.operator,
-            mov.device_id,
-            mov.lot?.startsWith('DEV-') || mov.lot?.startsWith('UNDO-') ? 'Devuelto' : 'Activo'
-          ]);
-
-          // Actualizar estadísticas del operador
-          if (!operatorStats[mov.operator]) {
-            operatorStats[mov.operator] = {
-              device: mov.device_id,
-              ventas: 0,
-              compras: 0,
-              devoluciones: 0
-            };
-          }
-
-          if (mov.type === 'venta') {
-            operatorStats[mov.operator].ventas += mov.quantity;
-          } else if (mov.type === 'ingreso') {
-            operatorStats[mov.operator].compras += mov.quantity;
-          } else if (mov.type === 'devolucion') {
-            operatorStats[mov.operator].devoluciones += mov.quantity;
-          }
-        });
-
-      // Añadir resumen por operador
-      Object.entries(operatorStats).forEach(([operator, stats]) => {
-        operatorSummary.addRow([
-          operator,
-          stats.device,
-          stats.ventas,
-          stats.compras,
-          stats.devoluciones
-        ]);
-      });
-      
-      const buffer = await workbook.xlsx.writeBuffer();
-      const timestamp = today.replace(/-/g, '');
-      saveAs(new Blob([buffer]), `historial_movimientos_${timestamp}.xlsx`);
-      
-      // Update last report timestamp
-      if (db) {
-        await db.put('settings', {
-          key: 'lastReport',
-          value: { timestamp: nowISO() }
-        });
-      }
-      
-      addToast('success', 'Reporte diario generado', '2 archivos XLSX descargados exitosamente');
-      
-    } catch (error) {
-      console.error('Daily report error:', error);
-      addToast('error', 'Error en reporte', 'No se pudo generar el reporte diario');
-    }
-    
-    setIsExporting(false);
-  };
-  
-  // Show onboarding if no settings
-  if (!settings) {
-    return <Onboarding onComplete={handleOnboardingComplete} />;
-  }
-  
-  return (
-    <div className="app-container">
-      <Toast toasts={toasts} removeToast={removeToast} />
-      
-      {/* Header */}
-      <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '12px 16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <h1 style={{ fontSize: '20px', margin: '0' }}>🏢</h1>
-              <input
-                type="text"
-                value={settings.bodega}
-                onChange={(e) => {
-                  const newSettings = { ...settings, bodega: e.target.value };
-                  setSettings(newSettings);
-                  db.put('settings', { key: 'onboarding', value: newSettings });
-                }}
-                className="form-control"
-                style={{ fontSize: '20px', padding: '4px 8px' }}
-                placeholder="Nombre de la bodega"
-              />
-            </div>
-            <p style={{ margin: '0', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
-              Moneda: {settings.currency}
-            </p>
-          </div>
-          <div>
-            <button 
-              className="btn btn--outline btn--sm"
-              onClick={() => {
-                // Mostrar el nombre actual de la bodega y permitir editar
-                const current = settings?.bodega || '';
-                const newName = prompt('Editar nombre de la bodega (deja igual para sólo reconfigurar):', current);
-                if (newName === null) return; // cancel
-                if (newName !== current) {
-                  if (!confirm('Cambiar el nombre de la bodega eliminará la base de datos y el progreso. ¿Deseas continuar?')) return;
-                  // Reset DB and force onboarding
-                  resetDatabase();
-                  setSettings(null);
-                  addToast('info', 'Reconfigurar', 'La base de datos fue reiniciada. Ingresa la nueva configuración.');
-                } else {
-                  // Same name -> just reconfigure (go to onboarding to edit other settings)
-                  if (confirm('¿Deseas reconfigurar la aplicación? No se eliminará la BD si mantienes el mismo nombre.')) {
-                    setSettings(null);
-                  }
-                }
-              }}
-            >
-              ⚙️ Reconfigurar
-            </button>
-            <button
-              className="btn btn--outline btn--sm"
-              onClick={resetDatabase}
-              style={{ marginLeft: '8px' }}
-            >
-              🧹 Reset BD
-            </button>
-          </div>
-        </div>
-      </div>
-      
-      {/* Main Navigation */}
-      <div className="main-tabs">
-        <button 
-          className={`main-tab ${activeView === 'dashboard' ? 'main-tab--active' : ''}`}
-          onClick={() => setActiveView('dashboard')}
-        >
-          🏠 Panel Principal
-        </button>
-        <button 
-          className={`main-tab ${activeView === 'inventory' ? 'main-tab--active' : ''}`}
-          onClick={() => setActiveView('inventory')}
-        >
-          📦 Inventario
-        </button>
-      </div>
-      
-      {/* Main Content */}
-      <div style={{ padding: '16px' }}>
-        {activeView === 'dashboard' && (
-          <div className="main-layout">
-            {/* Left Panel - Device Control */}
-            <DevicePanel
-              device={selectedDevice}
-              connected={connected}
-              onConnect={handleConnect}
-              onDisconnect={handleDisconnect}
-              onDeviceChange={handleDeviceChange}
-              availableDevices={devices}
-            />
-            
-            {/* Center Panel - Simulation */}
-            <SimulatePanel
-              connected={connected}
-              onProcessEvent={handleProcessEvent}
-              settings={settings}
-              device={selectedDevice}
-              simSinceReset={simSinceReset}
-              setSimSinceReset={setSimSinceReset}
-            />
-            
-            {/* Right Panel - Event Feed */}
-            <EventFeed
-              events={events}
-              onUndoSale={handleUndoSale}
-            />
-          </div>
-        )}
-        
-        {activeView === 'inventory' && (
-          <InventoryTable
-            batches={batches}
-            products={products}
-            movements={movements}
-            settings={settings}
-            onRefresh={() => refreshData()}
-            onExport={handleExportInventory}
-            onDailyReport={handleDailyReport}
-            onAddProduct={handleAddProduct}
-            onReturn={handleReturn}
-          />
-        )}
-      </div>
-      
-      {/* Export Progress */}
-      {isExporting && (
-        <div style={{
-          position: 'fixed',
-          bottom: '20px',
-          right: '20px',
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: '8px',
-          padding: '16px',
-          minWidth: '300px',
-          boxShadow: 'var(--shadow-lg)'
-        }}>
-          <div style={{ marginBottom: '8px' }}>📊 Generando archivo XLSX...</div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: '100%' }}></div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  // ...existing code...
 }
 export default App;
