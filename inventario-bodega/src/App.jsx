@@ -396,30 +396,82 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
     // Simular delay de escaneo
     setTimeout(() => {
       const randomProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
-      // If we are within the first 10 simulations since reset, force ingreso with 75% purchase price
+      // Primero verificamos el stock total por producto
+      const stockByProduct = {};
+      batches.forEach(batch => {
+        if (!batch.lot?.startsWith('DEV-') && !batch.lot?.startsWith('UNDO-')) {
+          if (!stockByProduct[batch.product_sku]) {
+            stockByProduct[batch.product_sku] = 0;
+          }
+          stockByProduct[batch.product_sku] += (batch.quantity || 0);
+        }
+      });
+
+      // Determinar el tipo de evento
       let randomEvent;
       if (typeof simSinceReset === 'number' && simSinceReset < 10) {
+        // Forzar ingresos para los primeros 10 eventos
         randomEvent = 'ingreso';
         setSimSinceReset(prev => prev + 1);
       } else {
-        const eventTypes = ['ingreso', 'venta', 'devolucion'];
-        randomEvent = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+        // Después de 10 ingresos, simular ventas o ingresos
+        // Si no hay stock suficiente de ningún producto, forzar ingreso
+        const hasStock = Object.values(stockByProduct).some(stock => stock >= 5);
+        if (!hasStock) {
+          randomEvent = 'ingreso';
+        } else {
+          // 60% probabilidad de venta, 40% de ingreso si hay stock
+          randomEvent = Math.random() < 0.6 ? 'venta' : 'ingreso';
+        }
       }
-      
+
+      // Para ventas, elegir solo productos con stock suficiente
+      let selectedProduct = randomProduct;
+      if (randomEvent === 'venta') {
+        const availableProducts = SAMPLE_PRODUCTS.filter(p => 
+          stockByProduct[p.sku] && stockByProduct[p.sku] >= 5
+        );
+        if (availableProducts.length > 0) {
+          selectedProduct = availableProducts[Math.floor(Math.random() * availableProducts.length)];
+        } else {
+          // Si no hay productos con stock suficiente, cambiar a ingreso
+          randomEvent = 'ingreso';
+          selectedProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
+        }
+      }
+
+      // Generar cantidades lógicas
+      let quantity;
+      if (randomEvent === 'ingreso') {
+        // Ingresos: entre 10 y 50 unidades
+        quantity = Math.floor(Math.random() * 41) + 10;
+      } else {
+        // Ventas: entre 1 y 5 unidades, sin exceder el stock
+        const maxVenta = Math.min(5, stockByProduct[selectedProduct.sku] || 0);
+        quantity = Math.floor(Math.random() * maxVenta) + 1;
+      }
+
+      // Generar precios lógicos
+      const basePrice = parseFloat((Math.random() * 15 + 5).toFixed(2)); // Precio base entre 5 y 20
+      const purchase_price = randomEvent === 'ingreso' ? basePrice : 0;
+      const sale_price = randomEvent === 'ingreso' ? 
+        parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2)) : // 30-70% margen
+        parseFloat((basePrice * 1.5).toFixed(2)); // Precio venta para transacciones de venta
+
       const simulatedPayload = {
         event: randomEvent,
         source: 'brazalete_simulado',
         device_id: device?.id || 'BRZ-001',
         timestamp: nowISO(),
         barcode: `750${Math.floor(Math.random() * 1000000000)}`,
-        sku: randomProduct.sku,
-        name: randomProduct.name,
-        quantity: Math.floor(Math.random() * 20) + 1,
-  sale_price: parseFloat((Math.random() * 15 + 2).toFixed(2)),
-  purchase_price: 0,
+        sku: selectedProduct.sku,
+        name: selectedProduct.name,
+        quantity: quantity,
+        purchase_price: purchase_price,
+        sale_price: sale_price,
         lot: `L${new Date().getFullYear()}${String(Math.floor(Math.random() * 99) + 1).padStart(2, '0')}`,
         expiry: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        category: randomProduct.category,
+        category: selectedProduct.category,
         bodega: settings?.bodega || 'Bodega Central',
         operator: device?.operator || settings?.user || 'Juan'
       };
