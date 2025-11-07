@@ -3,287 +3,147 @@ import { openDB } from 'idb';
 import { saveAs } from 'file-saver';
 import ExcelJS from 'exceljs';
 
-// Constants
-const DB_NAME = 'bodega-inventario';
-const DB_VERSION = 1;
+// Basic constants used across the app
+const DB_NAME = 'inventario_bodega_db_v1';
 
-const CURRENCIES = ['S/', '$', '€', 'MXN', 'COP', 'ARS'];
+const CURRENCIES = ['S/', '$'];
 
-const SAMPLE_PRODUCTS = [
-  { sku: 'GALX-001', name: 'Galletas X', category: 'Panadería' },
-  { sku: 'LECH-002', name: 'Leche entera 1L', category: 'Lácteos' },
-  { sku: 'PAN-003', name: 'Pan integral', category: 'Panadería' },
-  { sku: 'AGUA-004', name: 'Agua mineral 500ml', category: 'Bebidas' },
-  { sku: 'CAFE-005', name: 'Café molido 250g', category: 'Despensa' },
-  { sku: 'ARROZ-006', name: 'Arroz blanco 1kg', category: 'Granos' },
-  { sku: 'ACEIT-007', name: 'Aceite vegetal 1L', category: 'Aceites' },
-  { sku: 'AZUC-008', name: 'Azúcar blanca 1kg', category: 'Despensa' }
+const DEFAULT_COLUMNS = [
+  { key: 'sku', label: 'SKU', required: true },
+  { key: 'name', label: 'Nombre', required: true },
+  { key: 'category', label: 'Categoría', required: false },
+  { key: 'lot', label: 'Lote', required: false },
+  { key: 'expiry', label: 'Caducidad', required: false },
+  { key: 'quantity', label: 'Cantidad', required: true },
+  { key: 'purchase_price', label: 'Precio Compra', required: false },
+  { key: 'sale_price', label: 'Precio Venta', required: false }
 ];
 
 const SIMULATED_DEVICES = [
-  { id: 'BRZ-001', name: 'Pulsera-001', rssi: -50, operator: '' },
-  { id: 'BRZ-002', name: 'Pulsera-002', rssi: -65, operator: '' },
-  { id: 'BRZ-003', name: 'Pulsera-003', rssi: -78, operator: '' }
+  { id: 'PUL-001', name: 'Pulsera-001', rssi: -50, operator: '' },
+  { id: 'PUL-002', name: 'Pulsera-002', rssi: -60, operator: '' },
+  { id: 'PUL-003', name: 'Pulsera-003', rssi: -70, operator: '' }
 ];
 
-const DEFAULT_COLUMNS = [
-  { label: 'SKU', key: 'sku', required: true },
-  { label: 'Nombre', key: 'name', required: true },
-  { label: 'Categoría', key: 'category', required: false },
-  { label: 'Stock', key: 'quantity', required: true },
-  { label: 'Precio compra', key: 'purchase_price', required: false },
-  { label: 'Precio venta', key: 'sale_price', required: false },
-  { label: 'Lote', key: 'lot', required: false },
-  { label: 'Fecha caducidad', key: 'expiry', required: false }
+const SAMPLE_PRODUCTS = [
+  { sku: 'GALX-001', name: 'Galletas X', category: 'Panadería' },
+  { sku: 'LECH-001', name: 'Leche Entera', category: 'Lácteos' },
+  { sku: 'PAN-001', name: 'Pan Bimbo', category: 'Panadería' }
 ];
 
-// Database functions
-async function initDB() {
-  const db = await openDB(DB_NAME, DB_VERSION, {
-    upgrade(upgradeDb) {
-      // Settings store
-      if (!upgradeDb.objectStoreNames.contains('settings')) {
-        upgradeDb.createObjectStore('settings', { keyPath: 'key' });
-      }
-      
-      // Products store
-      if (!upgradeDb.objectStoreNames.contains('products')) {
-        upgradeDb.createObjectStore('products', { keyPath: 'sku' });
-      }
-      
-      // Batches store
-      if (!upgradeDb.objectStoreNames.contains('batches')) {
-        const batchStore = upgradeDb.createObjectStore('batches', { keyPath: 'id', autoIncrement: true });
-        batchStore.createIndex('product_sku', 'product_sku');
-        batchStore.createIndex('expiry', 'expiry');
-      }
-      
-      // Movements store
-      if (!upgradeDb.objectStoreNames.contains('movements')) {
-        upgradeDb.createObjectStore('movements', { keyPath: 'id', autoIncrement: true });
-      }
+// Helpers
+const nowISO = () => new Date().toISOString();
+const formatDate = (d) => { if (!d) return '-'; try { return new Date(d).toLocaleDateString(); } catch(e){return d;} };
+const formatDateTime = (d) => { if (!d) return '-'; try { return new Date(d).toLocaleString(); } catch(e){return d;} };
+
+function checkExpiry(dateStr) {
+  if (!dateStr) return 'normal';
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diff = (d - now) / (1000 * 60 * 60 * 24);
+  if (diff < 0) return 'expired';
+  if (diff <= 15) return 'expiring-soon';
+  return 'normal';
+}
+
+// Minimal RSSI indicator
+function RSSIIndicator({ rssi, connected }){
+  const color = connected ? 'var(--color-success)' : 'var(--color-text-secondary)';
+  return (
+    <div style={{ fontSize: '12px', color }}>{connected ? `RSSI: ${rssi} dBm` : `RSSI: ${rssi} dBm`}</div>
+  );
+}
+
+// Initialize IndexedDB (simple wrapper)
+async function initDB(){
+  const db = await openDB(DB_NAME, 1, {
+    upgrade(db) {
+      if (!db.objectStoreNames.contains('products')) db.createObjectStore('products', { keyPath: 'sku' });
+      if (!db.objectStoreNames.contains('batches')) db.createObjectStore('batches', { keyPath: 'id', autoIncrement: true });
+      if (!db.objectStoreNames.contains('movements')) db.createObjectStore('movements', { keyPath: 'id', autoIncrement: true });
+      if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
     }
   });
   return db;
 }
 
-// Utility functions
-function nowISO() {
-  return new Date().toISOString();
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('es-ES');
-}
-
-function formatDateTime(dateStr) {
-  return new Date(dateStr).toLocaleString('es-ES');
-}
-
-function checkExpiry(dateStr) {
-  if (!dateStr) return 'normal';
-  const expiry = new Date(dateStr);
-  const now = new Date();
-  const diffDays = (expiry - now) / (1000 * 60 * 60 * 24);
-  if (diffDays <= 0) return 'expired';
-  if (diffDays <= 15) return 'expiring-soon';
-  return 'normal';
-}
-
-function validatePrices(purchase, sale) {
-  if (purchase <= 0) return false;
-  if (sale <= purchase) return false;
-  return true;
-}
-
-// Toast component
-function Toast({ toasts, removeToast }) {
+// Simple Toast component
+function Toast({ toasts, removeToast }){
   useEffect(() => {
     toasts.forEach(toast => {
       if (toast.autoHide !== false) {
-        setTimeout(() => removeToast(toast.id), 3000);
+        const t = setTimeout(() => removeToast(toast.id), 3000);
+        return () => clearTimeout(t);
       }
+      return undefined;
     });
   }, [toasts]);
 
   return (
-    <div>
+    <div className="toast-container" style={{ position: 'fixed', top: 16, right: 16, zIndex: 9999 }}>
       {toasts.map(toast => (
-        <div key={toast.id} className={`toast toast--${toast.type}`}>
-          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-            {toast.title}
-          </div>
-          <div style={{ fontSize: '14px' }}>
-            {toast.message}
-          </div>
-          <button 
-            onClick={() => removeToast(toast.id)}
-            style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            ×
-          </button>
+        <div key={toast.id} className={`toast toast--${toast.type}`} style={{ background: 'var(--color-surface)', padding: 12, marginBottom: 8, border: '1px solid var(--color-border)', borderRadius: 8, position: 'relative' }}>
+          <div style={{ fontWeight: 'bold', marginBottom: 4 }}>{toast.title}</div>
+          <div style={{ fontSize: 13 }}>{toast.message}</div>
+          <button onClick={() => removeToast(toast.id)} style={{ position: 'absolute', top: 6, right: 8, background: 'none', border: 'none', cursor: 'pointer' }}>×</button>
         </div>
       ))}
     </div>
   );
 }
 
-// RSSI indicator component
-function RSSIIndicator({ rssi, connected }) {
-  const bars = [];
-  const strength = Math.abs(rssi);
-  
-  for (let i = 0; i < 4; i++) {
-    const isActive = connected && strength < (40 + i * 15);
-    bars.push(
-      <div key={i} className={`rssi-bar ${isActive ? 'rssi-bar--active' : ''}`}></div>
-    );
-  }
-  
-  return (
-    <div className="rssi-indicator">
-      <div className="rssi-bars">{bars}</div>
-      <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-        {rssi} dBm
-      </span>
-    </div>
-  );
-}
+// Minimal Onboarding component (collect bodega, currency, operators and columns)
+function Onboarding({ onComplete }){
+  const [formData, setFormData] = useState({ bodega: '', currency: CURRENCIES[0], columns: DEFAULT_COLUMNS.map(c => c.key), operators: ['', '', ''] });
 
-// Onboarding component
-function Onboarding({ onComplete }) {
-  const [formData, setFormData] = useState({
-    bodega: '',
-    operators: ['', '', ''],
-    currency: 'S/',
-    columns: DEFAULT_COLUMNS.filter(col => col.required).map(col => col.key)
-  });
-  
-  const handleColumnToggle = (columnKey) => {
-    const column = DEFAULT_COLUMNS.find(col => col.key === columnKey);
-    if (column.required) return; // No permitir desmarcar columnas requeridas
-    
-    setFormData(prev => ({
-      ...prev,
-      columns: prev.columns.includes(columnKey)
-        ? prev.columns.filter(key => key !== columnKey)
-        : [...prev.columns, columnKey]
-    }));
+  const handleColumnToggle = (key) => {
+    setFormData(prev => ({ ...prev, columns: prev.columns.includes(key) ? prev.columns.filter(k=>k!==key) : [...prev.columns, key] }));
   };
-  
-  const handleSubmit = (e) => {
+
+  const submit = (e) => {
     e.preventDefault();
-    if (!formData.bodega.trim()) {
-      alert('Por favor ingresa el nombre de la bodega');
-      return;
-    }
-    // Asignar operadores a pulseras
-    const devicesWithOperators = SIMULATED_DEVICES.map((device, index) => ({
-      ...device,
-      operator: formData.operators[index]?.trim() || ''
-    }));
-    onComplete({ ...formData, devices: devicesWithOperators });
+    if (!formData.bodega.trim()) { alert('Nombre de la bodega requerido'); return; }
+    if (onComplete) onComplete(formData);
   };
-  
+
   return (
-    <div className="onboarding-container">
-      <div className="onboarding-card">
-        <h1 style={{ textAlign: 'center', marginBottom: '24px' }}>
-          🏢 Configuración Inicial
-        </h1>
-        <p style={{ textAlign: 'center', marginBottom: '32px', color: 'var(--color-text-secondary)' }}>
-          Configura tu sistema de inventario antes de comenzar
-        </p>
-        
-        <form onSubmit={handleSubmit}>
+    <div className="onboarding-container" style={{ padding: 24 }}>
+      <div className="onboarding-card" style={{ maxWidth: 720, margin: '0 auto' }}>
+        <h2>Configuración Inicial</h2>
+        <form onSubmit={submit}>
           <div className="form-group">
-            <label className="form-label">Nombre de la Bodega *</label>
-            <input
-              className="form-control"
-              type="text"
-              value={formData.bodega}
-              onChange={(e) => setFormData(prev => ({ ...prev, bodega: e.target.value }))}
-              placeholder="Ej: Bodega Central"
-              required
-            />
+            <label>Nombre de la bodega</label>
+            <input className="form-control" value={formData.bodega} onChange={(e)=>setFormData(prev=>({ ...prev, bodega: e.target.value }))} />
           </div>
 
           <div className="form-group">
-            <label className="form-label">Trabajadores (3 pulseras disponibles)</label>
-            {formData.operators.map((operator, index) => (
-              <div key={index} style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <div style={{ 
-                  padding: '8px', 
-                  background: 'var(--color-bg-1)', 
-                  borderRadius: '4px',
-                  minWidth: '100px',
-                  fontWeight: 'bold'
-                }}>
-                  Pulsera {index + 1}
-                </div>
-                <input
-                  className="form-control"
-                  type="text"
-                  value={operator}
-                  onChange={(e) => {
-                    const newOperators = [...formData.operators];
-                    newOperators[index] = e.target.value;
-                    setFormData(prev => ({ ...prev, operators: newOperators }));
-                  }}
-                  placeholder={`Nombre del trabajador (opcional)`}
-                />
-              </div>
-            ))}
-            <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-              Asigna los trabajadores a las pulseras. Puedes dejar campos vacíos y asignarlos más tarde.
-            </div>
-          </div>
-          
-          <div className="form-group">
-            <label className="form-label">Moneda</label>
-            <select
-              className="form-control"
-              value={formData.currency}
-              onChange={(e) => setFormData(prev => ({ ...prev, currency: e.target.value }))}
-            >
-              {CURRENCIES.map(curr => (
-                <option key={curr} value={curr}>{curr}</option>
-              ))}
+            <label>Moneda</label>
+            <select className="form-control" value={formData.currency} onChange={(e)=>setFormData(prev=>({ ...prev, currency: e.target.value }))}>
+              {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          
+
           <div className="form-group">
-            <label className="form-label">Columnas Visibles en Inventario</label>
-            <div className="column-selector">
-              {DEFAULT_COLUMNS.map(column => (
-                <div key={column.key} className="checkbox-item">
-                  <input
-                    type="checkbox"
-                    id={column.key}
-                    checked={formData.columns.includes(column.key)}
-                    onChange={() => handleColumnToggle(column.key)}
-                    disabled={column.required}
-                  />
-                  <label htmlFor={column.key} style={{ fontSize: '14px' }}>
-                    {column.label} {column.required && '*'}
-                  </label>
-                </div>
+            <label>Operadores (hasta 3)</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {formData.operators.map((op, i) => (
+                <input key={i} className="form-control" value={op} onChange={(e)=>{ const ops = [...formData.operators]; ops[i]=e.target.value; setFormData(prev=>({...prev, operators: ops})); }} placeholder={`Operador ${i+1}`} />
               ))}
             </div>
           </div>
-          
-          <button type="submit" className="btn btn--primary btn--full-width btn--lg" style={{ marginTop: '24px' }}>
-            🚀 Comenzar
-          </button>
+
+          <div className="form-group">
+            <label>Columnas visibles</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {DEFAULT_COLUMNS.map(col => (
+                <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type="checkbox" checked={formData.columns.includes(col.key)} onChange={() => handleColumnToggle(col.key)} /> {col.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <button className="btn btn--primary" type="submit">🚀 Comenzar</button>
         </form>
       </div>
     </div>
@@ -301,9 +161,18 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
           <div className={`device-indicator device-indicator--${connected ? 'connected' : 'disconnected'}`}></div>
           <strong>{device.name}</strong>
         </div>
-        <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
+        <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
           ID: {device.id}
         </div>
+        {device?.operator ? (
+          <div style={{ fontSize: '14px', color: 'var(--color-success)', marginBottom: '8px' }}>
+            👤 {device.operator}
+          </div>
+        ) : (
+          <div style={{ fontSize: '13px', color: 'var(--color-warning)', marginBottom: '8px' }}>
+            ⚠️ Sin operador asignado
+          </div>
+        )}
         <RSSIIndicator rssi={device.rssi} connected={connected} />
         <div style={{ marginTop: '8px' }}>
           <span className={`status ${connected ? 'status--success' : 'status--error'}`}>
@@ -317,6 +186,8 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
           className="btn btn--primary btn--sm btn--full-width"
           onClick={connected ? onDisconnect : onConnect}
           style={{ marginBottom: '8px' }}
+          disabled={!connected && !device?.operator}
+          title={!connected && !device?.operator ? 'Asigna un operador a esta pulsera antes de conectar' : ''}
         >
           {connected ? '🔌 Desconectar' : '🔌 Conectar'}
         </button>
@@ -356,8 +227,8 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
 }
 
 // Simulate Panel component
-function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, setSimSinceReset }) {
-  const [activeTab, setActiveTab] = useState('json');
+function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device }) {
+  const [activeTab, setActiveTab] = useState('form');
   const [jsonInput, setJsonInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [continuousMode, setContinuousMode] = useState(false);
@@ -374,7 +245,7 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
     lot: '',
     expiry: '',
     category: '',
-    operator: settings?.user || ''
+    operator: device?.operator || settings?.user || ''
   });
   
   useEffect(() => {
@@ -392,7 +263,7 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
   const examplePayload = {
     event: 'ingreso',
     source: 'brazalete_simulado',
-    device_id: 'BRZ-001',
+    device_id: device?.id || 'BRZ-001',
     timestamp: nowISO(),
     barcode: '7501031311306',
     sku: 'GALX-001',
@@ -404,7 +275,7 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
     expiry: '2026-03-01',
     category: 'Panadería',
     bodega: settings?.bodega || 'Bodega Central',
-    operator: settings?.user || 'Juan'
+    operator: device?.operator || settings?.user || 'Juan'
   };
   
   const handleProcessJSON = () => {
@@ -445,7 +316,7 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
     const payload = {
       event: formData.type,
       source: 'brazalete_simulado',
-      device_id: 'BRZ-001',
+      device_id: device?.id || 'BRZ-001',
       timestamp: nowISO(),
       barcode: formData.barcode,
       sku: formData.barcode || `SKU-${Date.now()}`,
@@ -457,7 +328,7 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
       expiry: formData.expiry,
       category: formData.category,
       bodega: settings?.bodega || 'Bodega Central',
-      operator: formData.operator
+      operator: formData.operator || device?.operator || settings?.user
     };
     
     onProcessEvent(payload);
@@ -501,7 +372,7 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
       const simulatedPayload = {
         event: randomEvent,
         source: 'brazalete_simulado',
-        device_id: 'BRZ-001',
+        device_id: device?.id || 'BRZ-001',
         timestamp: nowISO(),
         barcode: `750${Math.floor(Math.random() * 1000000000)}`,
         sku: randomProduct.sku,
@@ -513,7 +384,7 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
         expiry: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         category: randomProduct.category,
         bodega: settings?.bodega || 'Bodega Central',
-        operator: settings?.user || 'Juan'
+        operator: device?.operator || settings?.user || 'Juan'
       };
       
       // If forced ingreso for seed, compute purchase as 75% of sale
@@ -812,9 +683,12 @@ function AddProductForm({ onAdd }) {
 }
 
 // Inventory Table component
-function InventoryTable({ batches, products, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){
+function InventoryTable({ batches, products, movements, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState('ventas'); // 'ventas' or 'compras'
+  // sectionMode controla la sección principal: 'ventas' o 'inventario'
+  const [sectionMode, setSectionMode] = useState('ventas'); // 'ventas' or 'inventario'
+  // viewMode controla la forma de ver el inventario: 'batches' (por lotes) o 'products' (por producto)
+  const [viewMode, setViewMode] = useState('batches');
   const [sortField, setSortField] = useState('sku');
   const [sortDir, setSortDir] = useState('asc');
   
@@ -870,6 +744,31 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
     const comparison = String(valA).localeCompare(String(valB));
     return sortDir === 'asc' ? comparison : -comparison;
   });
+
+  // If user selected 'products' view, aggregate batches per product to show one row per product
+  const perProductRows = (() => {
+    const map = {};
+    filteredBatches.forEach(b => {
+      if (!map[b.product_sku]) {
+        map[b.product_sku] = {
+          product_sku: b.product_sku,
+          quantity: 0,
+          totalValue: 0,
+          avgPurchase: 0,
+          expiry: null
+        };
+      }
+      map[b.product_sku].quantity += Number(b.quantity || 0);
+      map[b.product_sku].totalValue += (Number(b.quantity || 0) * Number(b.purchase_price || 0));
+      if (!map[b.product_sku].expiry && b.expiry) map[b.product_sku].expiry = b.expiry;
+    });
+    return Object.values(map).map(item => ({
+      product_sku: item.product_sku,
+      quantity: item.quantity,
+      purchase_price: item.quantity ? (item.totalValue / item.quantity) : 0,
+      expiry: item.expiry
+    }));
+  })();
   
   const handleSort = (field) => {
     if (sortField === field) {
@@ -901,7 +800,7 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
         <h4 style={{ margin: '0 0 8px 0' }}>➕ Agregar producto rápido</h4>
         <AddProductForm onAdd={onAddProduct} />
       </div>
-      {/* Stats */}
+      {/* Stats: mostrar producto más/menos vendido usando movimientos (ventas - devoluciones) */}
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-value">{products.length}</div>
@@ -919,10 +818,40 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
           <div className="stat-value">{settings?.currency || 'S/'}{totalValue.toFixed(2)}</div>
           <div className="stat-label">Valor Inventario</div>
         </div>
-        <div className="stat-card">
-          <div className="stat-value" style={{ color: totalProfit >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>{settings?.currency || 'S/'}{totalProfit.toFixed(2)}</div>
-          <div className="stat-label">Ganancia Potencial</div>
-        </div>
+        {/* Producto más/menos vendido */}
+        {movements && (
+          (() => {
+            const netSales = {};
+            movements.forEach(m => {
+              if (!m.sku) return;
+              if (!netSales[m.sku]) netSales[m.sku] = 0;
+              if (m.type === 'venta') netSales[m.sku] += (m.quantity || 0);
+              if (m.type === 'devolucion') netSales[m.sku] -= (m.quantity || 0);
+            });
+
+            const entries = Object.entries(netSales);
+            let most = null;
+            let least = null;
+            if (entries.length > 0) {
+              entries.sort((a, b) => b[1] - a[1]);
+              most = entries[0];
+              least = entries[entries.length - 1];
+            }
+
+            return (
+              <>
+                <div className="stat-card">
+                  <div className="stat-value">{most ? `${products.find(p=>p.sku===most[0])?.name || most[0]} (${most[1]})` : '-'}</div>
+                  <div className="stat-label">Producto más vendido</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-value">{least ? `${products.find(p=>p.sku===least[0])?.name || least[0]} (${least[1]})` : '-'}</div>
+                  <div className="stat-label">Producto menos vendido</div>
+                </div>
+              </>
+            );
+          })()
+        )}
       </div>
       
       {/* Toolbar */}
@@ -970,17 +899,17 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
       {/* Vista switcher */}
       <div style={{ marginBottom: '16px' }}>
         <button 
-          className={`btn ${viewMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
-          onClick={() => setViewMode('ventas')}
+          className={`btn ${sectionMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
+          onClick={() => setSectionMode('ventas')}
           style={{ marginRight: '8px' }}
         >
           💰 Ventas
         </button>
         <button 
-          className={`btn ${viewMode === 'compras' ? 'btn--primary' : 'btn--outline'}`}
-          onClick={() => setViewMode('compras')}
+          className={`btn ${sectionMode === 'inventario' ? 'btn--primary' : 'btn--outline'}`}
+          onClick={() => setSectionMode('inventario')}
         >
-          📦 Compras y Devoluciones
+          📦 Inventario
         </button>
       </div>
 
@@ -1040,7 +969,7 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
           <tbody>
             {sortedBatches.length === 0 ? (
               <tr>
-                <td colSpan={visibleColumns.length + 1} style={{ textAlign: 'center', padding: '32px' }}>
+                <td colSpan={visibleColumns.length + 2} style={{ textAlign: 'center', padding: '32px' }}>
                   <div className="empty-state">
                     <div style={{ fontSize: '48px', marginBottom: '16px' }}>📦</div>
                     <p>No hay inventario disponible</p>
@@ -1066,7 +995,7 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
                 if (viewMode === 'ventas' && (isReturned || batch.lot?.startsWith('INIT-'))) {
                   return null;
                 }
-                if (viewMode === 'compras' && !isReturned && !batch.lot?.startsWith('INIT-')) {
+                if (viewMode === 'inventario' && !isReturned && !batch.lot?.startsWith('INIT-')) {
                   return null;
                 }
 
@@ -1134,7 +1063,7 @@ function InventoryTable({ batches, products, settings, onRefresh, onExport, onDa
                       {!isReturned && !batch.lot?.startsWith('INIT-') && (
                         <button 
                           className="btn btn--outline btn--sm"
-                          onClick={() => onReturn(batch)}
+                          onClick={() => onReturn(batch, sectionMode)}
                           title="Devolver producto"
                           style={{ width: '100%' }}
                         >
@@ -1341,8 +1270,12 @@ function App() {
   };
   
   const handleConnect = () => {
+    if (!selectedDevice?.operator) {
+      alert('No se puede conectar: asigna un operador a esta pulsera primero.');
+      return;
+    }
     setConnected(true);
-    addToast('success', 'Conectado', `Brazalete ${selectedDevice.id} conectado (simulado)`);
+    addToast('success', 'Conectado', `Pulsera ${selectedDevice.id} conectada (operador: ${selectedDevice.operator})`);
     setEvents(prev => [{
       id: Date.now(),
       type: 'system',
@@ -1527,6 +1460,68 @@ function App() {
     
     await handleProcessEvent(returnPayload);
     addToast('info', 'Venta deshecha', `Devolución creada para ${saleEvent.quantity} unidades`);
+  };
+
+  // Generic return handler used from UI (ventas o inventario)
+  const handleReturn = async (batch, mode = 'ventas') => {
+    if (!db) return;
+
+    try {
+      if (mode === 'ventas') {
+        // Create a devolucion to add items back to inventory (undo sale)
+        const product = products.find(p => p.sku === batch.product_sku) || {};
+        const returnPayload = {
+          event: 'devolucion',
+          sku: batch.product_sku,
+          name: product.name || batch.product_sku,
+          quantity: batch.quantity || 1,
+          purchase_price: batch.purchase_price || 0,
+          lot: `UNDO-${Date.now()}`,
+          timestamp: nowISO(),
+          device_id: selectedDevice?.id,
+          operator: selectedDevice?.operator || settings?.user || 'Usuario'
+        };
+
+        await handleProcessEvent(returnPayload);
+        addToast('info', 'Devolución creada', `Se devolvieron ${returnPayload.quantity} unidades de ${returnPayload.name}`);
+      } else {
+        // mode === 'inventario' -> Devolver compra: marcar lote como devuelto y restar stock
+        const tx = db.transaction(['batches', 'movements'], 'readwrite');
+        const batchStore = tx.objectStore('batches');
+        const existing = await batchStore.get(batch.id);
+        if (!existing) {
+          addToast('error', 'Error', 'Lote no encontrado');
+          await tx.done;
+          return;
+        }
+
+        // Mark as returned
+        existing.lot = `DEV-${existing.lot || Date.now()}`;
+        existing.quantity = 0;
+        await batchStore.put(existing);
+
+        // Record movement
+        await tx.objectStore('movements').add({
+          type: 'devolucion_compra',
+          sku: existing.product_sku,
+          name: (products.find(p => p.sku === existing.product_sku) || {}).name || existing.product_sku,
+          quantity: 0,
+          price: existing.purchase_price || 0,
+          lot: existing.lot,
+          timestamp: nowISO(),
+          device_id: selectedDevice?.id,
+          operator: selectedDevice?.operator || settings?.user || 'Usuario',
+          bodega: settings?.bodega
+        });
+
+        await tx.done;
+        addToast('info', 'Compra devuelta', `El lote ${existing.lot} fue marcado como devuelto y removido del inventario`);
+        await refreshData();
+      }
+    } catch (error) {
+      console.error('Return error:', error);
+      addToast('error', 'Error', 'No se pudo procesar la devolución: ' + error.message);
+    }
   };
   
   const handleExportInventory = async () => {
@@ -1733,8 +1728,21 @@ function App() {
             <button 
               className="btn btn--outline btn--sm"
               onClick={() => {
-                if (confirm('¿Deseas reconfigurar la aplicación? Se perderán los datos actuales.')) {
+                // Mostrar el nombre actual de la bodega y permitir editar
+                const current = settings?.bodega || '';
+                const newName = prompt('Editar nombre de la bodega (deja igual para sólo reconfigurar):', current);
+                if (newName === null) return; // cancel
+                if (newName !== current) {
+                  if (!confirm('Cambiar el nombre de la bodega eliminará la base de datos y el progreso. ¿Deseas continuar?')) return;
+                  // Reset DB and force onboarding
+                  resetDatabase();
                   setSettings(null);
+                  addToast('info', 'Reconfigurar', 'La base de datos fue reiniciada. Ingresa la nueva configuración.');
+                } else {
+                  // Same name -> just reconfigure (go to onboarding to edit other settings)
+                  if (confirm('¿Deseas reconfigurar la aplicación? No se eliminará la BD si mantienes el mismo nombre.')) {
+                    setSettings(null);
+                  }
                 }
               }}
             >
@@ -1786,6 +1794,7 @@ function App() {
               connected={connected}
               onProcessEvent={handleProcessEvent}
               settings={settings}
+              device={selectedDevice}
               simSinceReset={simSinceReset}
               setSimSinceReset={setSimSinceReset}
             />
@@ -1802,11 +1811,13 @@ function App() {
           <InventoryTable
             batches={batches}
             products={products}
+            movements={movements}
             settings={settings}
             onRefresh={() => refreshData()}
             onExport={handleExportInventory}
             onDailyReport={handleDailyReport}
             onAddProduct={handleAddProduct}
+            onReturn={handleReturn}
           />
         )}
       </div>
