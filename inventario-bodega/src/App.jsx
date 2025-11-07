@@ -1254,20 +1254,45 @@ function App() {
   };
   
   const handleOnboardingComplete = async (formData) => {
-    if (!db) return;
-    
+    // If DB isn't ready yet, accept the settings in memory so the UI continues
+    setSettings(formData);
+    addToast('success', '¡Bienvenido!', 'Configuración aplicada (se persistirá automáticamente).');
+
     try {
-      await db.put('settings', {
-        key: 'onboarding',
-        value: formData
-      });
-      setSettings(formData);
-      addToast('success', '¡Bienvenido!', 'Configuración guardada correctamente');
+      if (db) {
+        await db.put('settings', {
+          key: 'onboarding',
+          value: formData
+        });
+        addToast('success', 'Configuración guardada', 'La configuración fue persistida en la base de datos');
+      } else {
+        // Save to localStorage as fallback; will be written when DB initializes
+        try { localStorage.setItem('pending_onboarding', JSON.stringify(formData)); } catch (e) { /* ignore */ }
+      }
     } catch (error) {
       console.error('Error saving settings:', error);
-      addToast('error', 'Error', 'No se pudo guardar la configuración');
+      addToast('warning', 'Persistencia pendiente', 'No se pudo guardar ahora; se intentará al inicializar la BD');
     }
   };
+
+  // When DB becomes available, persist any pending onboarding saved to localStorage
+  useEffect(() => {
+    if (!db) return;
+    try {
+      const raw = localStorage.getItem('pending_onboarding');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        db.put('settings', { key: 'onboarding', value: parsed }).then(() => {
+          localStorage.removeItem('pending_onboarding');
+          addToast('success', 'Configuración persistida', 'La configuración inicial fue guardada en la BD');
+        }).catch(err => {
+          console.error('No se pudo persistir onboarding pendiente:', err);
+        });
+      }
+    } catch (e) {
+      console.error('Error al procesar pending_onboarding', e);
+    }
+  }, [db]);
   
   const handleConnect = () => {
     if (!selectedDevice?.operator) {
