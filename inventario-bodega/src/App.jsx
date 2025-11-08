@@ -1092,7 +1092,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
               if (!m.sku) return;
               if (!netSales[m.sku]) netSales[m.sku] = 0;
               if (m.type === 'venta') netSales[m.sku] += (m.quantity || 0);
-              if (m.type === 'devolucion') netSales[m.sku] -= (m.quantity || 0);
+              if (m.type === 'devolucion' || m.type === 'devolucion_venta') netSales[m.sku] -= (m.quantity || 0);
             });
 
             const entries = Object.entries(netSales);
@@ -1605,6 +1605,22 @@ function App() {
 
     initializeApp();
   }, []);
+
+  // Garantiza que la BD esté lista cuando se necesita (fallback perezoso)
+  const ensureDbReady = async () => {
+    if (db) return db;
+    try {
+      const database = await initDB();
+      setDb(database);
+      // cargar datos básicos para no romper KPIs/visuales
+      await refreshData(database);
+      return database;
+    } catch (e) {
+      console.error('No se pudo inicializar BD on-demand:', e);
+      addToast('error', 'BD no lista', 'No se pudo inicializar la base de datos');
+      throw e;
+    }
+  };
   
   const refreshData = async (database = db) => {
     if (!database) return;
@@ -1663,13 +1679,11 @@ function App() {
 
   // Add product + initial batch (used by InventoryTable)
   const handleAddProduct = async (productPayload) => {
-    if (!db) {
-      addToast('error', 'BD no lista', 'Espera a que la base de datos se inicialice');
-      return;
-    }
+    const database = await ensureDbReady().catch(() => null);
+    if (!database) return;
 
     try {
-      const tx = db.transaction(['products', 'batches'], 'readwrite');
+      const tx = database.transaction(['products', 'batches'], 'readwrite');
 
       // Enforce sale_price > purchase_price with minimal margen (1%)
       const purchase = Number(productPayload.purchase_price) || 0;
@@ -1827,8 +1841,11 @@ function App() {
   };
   
   const handleProcessEvent = async (payload) => {
-    if (!db || !connected) {
-      addToast('error', 'Error', !db ? 'Base de datos no disponible' : 'Dispositivo no conectado');
+    // Asegurar BD lista, y validar conexión de dispositivo
+    const database = await ensureDbReady().catch(() => null);
+    if (!database) return;
+    if (!connected) {
+      addToast('error', 'Error', 'Dispositivo no conectado');
       return;
     }
     
@@ -1861,7 +1878,7 @@ function App() {
 
       if (payload.event === 'ingreso') {
         // Transacción de ingreso a inventario
-        const tx = db.transaction(['products', 'batches', 'movements'], 'readwrite');
+        const tx = database.transaction(['products', 'batches', 'movements'], 'readwrite');
         
         // Create or update product
         const productStore = tx.objectStore('products');
@@ -1906,7 +1923,7 @@ function App() {
         }
 
         // Buscar el producto para obtener el precio de venta correcto
-        const product = await db.get('products', movement.sku);
+        const product = await database.get('products', movement.sku);
         if (!product) {
           addToast('error', 'Error', 'Producto no encontrado en la base de datos');
           return;
@@ -1916,7 +1933,7 @@ function App() {
         movement.price = product.default_sale_price || movement.price;
 
         // Transacción de venta incluyendo la tabla de ventas
-        const tx = db.transaction(['sales', 'batches', 'movements'], 'readwrite');
+        const tx = database.transaction(['sales', 'batches', 'movements'], 'readwrite');
         
         // Verificar stock
         const batchStore = tx.objectStore('batches');
@@ -1996,7 +2013,7 @@ function App() {
         
       } else if (payload.event === 'devolucion') {
         // Verificar ventas previas
-        const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
+        const tx = database.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
         
         const salesStore = tx.objectStore('sales');
         const sales = await salesStore.getAll();
@@ -2073,10 +2090,11 @@ function App() {
   };
   
   const handleUndoSale = async (saleEvent) => {
-    if (!db) return;
+    const database = await ensureDbReady().catch(() => null);
+    if (!database) return;
     
     try {
-      const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
+      const tx = database.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
       
       // Verificar que la venta existe y no está anulada
       const salesStore = tx.objectStore('sales');
@@ -2149,12 +2167,13 @@ function App() {
 
   // Generic return handler used from UI (ventas o inventario)
   const handleReturn = async (batch, mode = 'ventas') => {
-    if (!db) return;
+    const database = await ensureDbReady().catch(() => null);
+    if (!database) return;
 
     try {
       if (mode === 'ventas') {
         // Devolver venta: crear registro en returns y devolver al inventario
-        const tx = db.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
+        const tx = database.transaction(['sales', 'returns', 'batches', 'movements'], 'readwrite');
         const product = products.find(p => p.sku === batch.product_sku) || {};
 
         // Registrar devolución
@@ -2202,7 +2221,7 @@ function App() {
 
       } else {
         // Devolver compra: marcar lote como devuelto y registrar movimiento
-        const tx = db.transaction(['batches', 'returns', 'movements'], 'readwrite');
+        const tx = database.transaction(['batches', 'returns', 'movements'], 'readwrite');
         
         // Verificar que el lote existe y no está ya devuelto
         const batchStore = tx.objectStore('batches');
