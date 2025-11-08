@@ -57,42 +57,37 @@ function RSSIIndicator({ rssi, connected }){
 
 // Initialize IndexedDB (simple wrapper)
 async function initDB(){
-  const db = await openDB(DB_NAME, 1, {
-    upgrade(db) {
-      // Productos y configuración
-      if (!db.objectStoreNames.contains('products')) db.createObjectStore('products', { keyPath: 'sku' });
-      if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
-      
-      // Inventario
-      if (!db.objectStoreNames.contains('batches')) {
-        const batchStore = db.createObjectStore('batches', { keyPath: 'id', autoIncrement: true });
-        batchStore.createIndex('by_sku', 'product_sku');
-        batchStore.createIndex('by_lot', 'lot');
+  try {
+    const db = await openDB(DB_NAME, 1, {
+      upgrade(db) {
+        // Productos y configuración
+        if (!db.objectStoreNames.contains('products')) db.createObjectStore('products', { keyPath: 'sku' });
+        if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+        
+        // Unified store for inventory and sales
+        if (!db.objectStoreNames.contains('batches')) {
+          const batchStore = db.createObjectStore('batches', { keyPath: 'id', autoIncrement: true });
+          batchStore.createIndex('by_sku', 'product_sku');
+          batchStore.createIndex('by_lot', 'lot');
+          batchStore.createIndex('by_type', 'type');
+        }
+        
+        // Movimientos generales (ingresos, ventas, devoluciones, etc)
+        if (!db.objectStoreNames.contains('movements')) {
+          const movStore = db.createObjectStore('movements', { keyPath: 'id', autoIncrement: true });
+          movStore.createIndex('by_type', 'type');
+          movStore.createIndex('by_sku', 'sku');
+          movStore.createIndex('by_date', 'timestamp');
+        }
       }
-      
-      // Ventas y movimientos
-      if (!db.objectStoreNames.contains('sales')) {
-        const salesStore = db.createObjectStore('sales', { keyPath: 'id', autoIncrement: true });
-        salesStore.createIndex('by_sku', 'sku');
-        salesStore.createIndex('by_date', 'timestamp');
-      }
-      
-      if (!db.objectStoreNames.contains('returns')) {
-        const returnsStore = db.createObjectStore('returns', { keyPath: 'id', autoIncrement: true });
-        returnsStore.createIndex('by_sale_id', 'sale_id');
-        returnsStore.createIndex('by_date', 'timestamp'); 
-      }
-      
-      // Movimientos generales (ingresos, devoluciones, etc)
-      if (!db.objectStoreNames.contains('movements')) {
-        const movStore = db.createObjectStore('movements', { keyPath: 'id', autoIncrement: true });
-        movStore.createIndex('by_type', 'type');
-        movStore.createIndex('by_sku', 'sku');
-        movStore.createIndex('by_date', 'timestamp');
-      }
-    }
-  });
-  return db;
+    });
+    
+    console.log('Database initialized successfully');
+    return db;
+  } catch (error) {
+    console.error('Error initializing database:', error);
+    throw error;
+  }
 }
 
 // Simple Toast component
@@ -1348,12 +1343,12 @@ function ConnectionModal({ show }) {
 
 // Main App component
 function App() {
-  // Estado para el modal de conexión
   const [showConnectionModal, setShowConnectionModal] = useState(true);
   const [db, setDb] = useState(null);
   const [settings, setSettings] = useState(null); 
-  const [prevOnboarding, setPrevOnboarding] = useState(null); // nuevo: para reconfigurar sin borrar datos
+  const [prevOnboarding, setPrevOnboarding] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
+  const [dbStatus, setDbStatus] = useState('initializing'); // 'initializing', 'ready', 'error'
   
   // Device state
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
@@ -1373,29 +1368,33 @@ function App() {
   const [isExporting, setIsExporting] = useState(false);
   
   useEffect(() => {
-    initDB().then(async (database) => {
-      setDb(database);
-      
-      // Load settings and auto-conectar si existe configuración
+    const initializeApp = async () => {
+      setDbStatus('initializing');
       try {
+        // Inicializar la base de datos
+        const database = await initDB();
+        setDb(database);
+        
+        // Cargar configuración
         const savedSettings = await database.get('settings', 'onboarding');
         if (savedSettings) {
           setSettings(savedSettings.value);
 
-          // Mapear operadores a la única pulsera y seleccionar dispositivo
+          // Mapear operadores a dispositivos
           const ops = savedSettings.value?.operators || [];
           const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: ops[i] || d.operator }));
           setDevices(mapped);
           const first = mapped[0];
+          
           if (first) {
             setSelectedDevice(first);
-            setConnected(true); // auto-conexión solicitada
-            addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
+            setConnected(true);
+            addToast('info', 'Conexión automática', 'Sensor de ventas activado automáticamente');
             setEvents(prev => [{
               id: Date.now(),
               type: 'system',
               sku: 'SYSTEM',
-              name: 'Sensor de ventas conectado automáticamente',
+              name: 'Sistema inicializado y conectado',
               quantity: 0,
               timestamp: nowISO(),
               device_id: first.id,
@@ -1403,13 +1402,21 @@ function App() {
             }, ...prev.slice(0, 19)]);
           }
         }
+
+        // Cargar datos iniciales
+        await refreshData(database);
+        
+        setDbStatus('ready');
+        console.log('Aplicación inicializada correctamente');
       } catch (error) {
-        console.log('No saved settings found', error);
+        console.error('Error al inicializar la aplicación:', error);
+        setDbStatus('error');
+        addToast('error', 'Error de inicialización', 
+          'No se pudo inicializar la base de datos. Por favor, recarga la página.');
       }
-      
-      // Load data
-      await refreshData(database);
-    });
+    };
+
+    initializeApp();
   }, []);
   
   const refreshData = async (database = db) => {
@@ -2234,9 +2241,60 @@ function App() {
     setIsExporting(false);
   };
   
-  // Si no hay configuración, mostramos Onboarding
+  // Mostrar estados de inicialización
+  if (dbStatus === 'error') {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        height: '100vh',
+        padding: '20px',
+        textAlign: 'center'
+      }}>
+        <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+        <h2>Error de Inicialización</h2>
+        <p>No se pudo inicializar la base de datos. Por favor, intenta lo siguiente:</p>
+        <ol style={{ textAlign: 'left' }}>
+          <li>Recarga la página</li>
+          <li>Limpia el caché del navegador</li>
+          <li>Si el problema persiste, haz clic en "Reset BD" cuando la aplicación se inicie</li>
+        </ol>
+        <button 
+          className="btn btn--primary" 
+          onClick={() => window.location.reload()}
+          style={{ marginTop: '16px' }}
+        >
+          🔄 Recargar Aplicación
+        </button>
+      </div>
+    );
+  }
+
+  if (dbStatus === 'initializing') {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        height: '100vh',
+        padding: '20px',
+        textAlign: 'center'
+      }}>
+        <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚙️</div>
+        <h2>Inicializando</h2>
+        <p>Preparando la base de datos...</p>
+        <div className="progress-bar" style={{ width: '200px', marginTop: '16px' }}>
+          <div className="progress-fill" style={{ width: '100%' }}></div>
+        </div>
+      </div>
+    );
+  }
+
   if (!settings) {
-    return <Onboarding onComplete={handleOnboardingComplete} />;
+    return <Onboarding onComplete={handleOnboardingComplete} initialData={prevOnboarding} />;
   }
   
   return (
