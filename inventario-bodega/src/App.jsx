@@ -79,6 +79,19 @@ async function initDB(){
           batchStore.createIndex('by_lot', 'lot');
           batchStore.createIndex('by_type', 'type');
         }
+
+        // Sales and returns stores (necesarios para registrar ventas y devoluciones)
+        if (!db.objectStoreNames.contains('sales')) {
+          const salesStore = db.createObjectStore('sales', { keyPath: 'id', autoIncrement: true });
+          salesStore.createIndex('by_sku', 'sku');
+          salesStore.createIndex('by_date', 'timestamp');
+        }
+
+        if (!db.objectStoreNames.contains('returns')) {
+          const returnsStore = db.createObjectStore('returns', { keyPath: 'id', autoIncrement: true });
+          returnsStore.createIndex('by_sku', 'sku');
+          returnsStore.createIndex('by_date', 'timestamp');
+        }
         
         // Movimientos generales (ingresos, ventas, devoluciones, etc)
         if (!db.objectStoreNames.contains('movements')) {
@@ -496,6 +509,8 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
     await new Promise(res => setTimeout(res, 800));
 
     const randomProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
+  // Declarar selectedProduct antes de usarla más abajo (evita TDZ/ReferenceError)
+  let selectedProduct = randomProduct;
 
     // Verificar stock usando batches recibido como prop
     const stockByProduct = {};
@@ -528,8 +543,6 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       randomEvent = Math.random() < 0.85 ? 'ingreso' : 'devolucion';
     }
 
-    // Para devoluciones elegimos un producto con ventas/stock previo si existe
-    let selectedProduct = randomProduct;
     if (randomEvent === 'devolucion') {
       // Preferir productos que tengan movimientos o lotes devueltos
       const candidate = SAMPLE_PRODUCTS.find(p => (stockByProduct[p.sku] || 0) > 0);
