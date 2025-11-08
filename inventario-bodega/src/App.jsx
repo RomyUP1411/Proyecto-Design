@@ -66,11 +66,17 @@ function RSSIIndicator({ rssi, connected }){
 // Initialize IndexedDB (simple wrapper)
 async function initDB(){
   try {
-    const db = await openDB(DB_NAME, 1, {
-      upgrade(db) {
+    const db = await openDB(DB_NAME, 2, { // Incrementé la versión para forzar la actualización
+      upgrade(db, oldVersion, newVersion) {
         // Productos y configuración
-        if (!db.objectStoreNames.contains('products')) db.createObjectStore('products', { keyPath: 'sku' });
-        if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+        if (!db.objectStoreNames.contains('products')) {
+          const productStore = db.createObjectStore('products', { keyPath: 'sku' });
+          productStore.createIndex('by_category', 'category');
+        }
+        
+        if (!db.objectStoreNames.contains('settings')) {
+          db.createObjectStore('settings', { keyPath: 'key' });
+        }
         
         // Unified store for inventory and sales
         if (!db.objectStoreNames.contains('batches')) {
@@ -86,6 +92,20 @@ async function initDB(){
           movStore.createIndex('by_type', 'type');
           movStore.createIndex('by_sku', 'sku');
           movStore.createIndex('by_date', 'timestamp');
+        }
+
+        // Store específica para ventas
+        if (!db.objectStoreNames.contains('sales')) {
+          const salesStore = db.createObjectStore('sales', { keyPath: 'id' });
+          salesStore.createIndex('by_date', 'timestamp');
+          salesStore.createIndex('by_sku', 'sku');
+        }
+
+        // Store para devoluciones
+        if (!db.objectStoreNames.contains('returns')) {
+          const returnsStore = db.createObjectStore('returns', { keyPath: 'id', autoIncrement: true });
+          returnsStore.createIndex('by_sale', 'sale_id');
+          returnsStore.createIndex('by_date', 'timestamp');
         }
       }
     });
@@ -1485,6 +1505,17 @@ function App() {
         if (savedSettings) {
           setSettings(savedSettings.value);
 
+          // Intentar cargar configuración pendiente del localStorage
+          try {
+            const pendingConfig = localStorage.getItem('pending_onboarding');
+            if (pendingConfig) {
+              const parsed = JSON.parse(pendingConfig);
+              await database.put('settings', { key: 'onboarding', value: parsed });
+              setSettings(parsed);
+              localStorage.removeItem('pending_onboarding');
+            }
+          } catch (e) { /* ignore */ }
+
           // Mapear operadores a dispositivos
           const ops = savedSettings.value?.operators || [];
           const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: ops[i] || d.operator }));
@@ -1494,16 +1525,17 @@ function App() {
           if (first) {
             setSelectedDevice(first);
             setConnected(true);
-            addToast('info', 'Conexión automática', 'Sensor de ventas activado automáticamente');
+            setSalesSensorConnected(true); // Activar también el sensor de ventas
+            addToast('success', 'Sistema Iniciado', 'Dispositivos conectados automáticamente');
             setEvents(prev => [{
               id: Date.now(),
               type: 'system',
               sku: 'SYSTEM',
-              name: 'Sistema inicializado y conectado',
+              name: 'Sistema inicializado y dispositivos conectados',
               quantity: 0,
               timestamp: nowISO(),
               device_id: first.id,
-              operator: 'system'
+              operator: first.operator || 'system'
             }, ...prev.slice(0, 19)]);
           }
         }
@@ -1641,19 +1673,23 @@ function App() {
       if (updatedSelected) {
         setSelectedDevice(updatedSelected);
         setConnected(true);
-        addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
+        setSalesSensorConnected(true); // Activar también el sensor de ventas
+        addToast('info', 'Dispositivos conectados', 'Pulsera y sensor de ventas activados automáticamente');
         setEvents(prev => [{
           id: Date.now(),
           type: 'system',
           sku: 'SYSTEM',
-          name: 'Sensor de ventas conectado',
+          name: 'Dispositivos conectados y listos',
           quantity: 0,
           timestamp: nowISO(),
           device_id: updatedSelected.id,
-          operator: 'system'
+          operator: formData.operators[0] || 'system'
         }, ...prev.slice(0, 19)]);
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { 
+      console.error('Error conectando dispositivos:', e);
+      addToast('error', 'Error de conexión', 'No se pudieron conectar los dispositivos automáticamente');
+    }
 
     try {
       if (db) {
