@@ -1474,6 +1474,7 @@ function App() {
   const [prevOnboarding, setPrevOnboarding] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
   const [dbStatus, setDbStatus] = useState('initializing'); // 'initializing', 'ready', 'error'
+  const [initError, setInitError] = useState(null); // Para mostrar errores de inicialización
   
   // Device state
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
@@ -1495,13 +1496,22 @@ function App() {
   useEffect(() => {
     const initializeApp = async () => {
       setDbStatus('initializing');
+      setInitError(null);
       try {
+        console.log('Iniciando aplicación...');
         // Inicializar la base de datos
-        const database = await initDB();
+        const database = await initDB().catch(e => {
+          console.error('Error al inicializar BD:', e);
+          throw new Error('No se pudo inicializar la base de datos: ' + e.message);
+        });
+        console.log('Base de datos inicializada');
         setDb(database);
         
         // Cargar configuración
-        const savedSettings = await database.get('settings', 'onboarding');
+        const savedSettings = await database.get('settings', 'onboarding').catch(e => {
+          console.error('Error al cargar configuración:', e);
+          throw new Error('No se pudo cargar la configuración: ' + e.message);
+        });
         if (savedSettings) {
           setSettings(savedSettings.value);
 
@@ -1548,6 +1558,33 @@ function App() {
       } catch (error) {
         console.error('Error al inicializar la aplicación:', error);
         setDbStatus('error');
+        setInitError(error);
+        
+        // Intentar limpiar la base de datos si hay un error crítico
+        try {
+          if (db) {
+            db.close();
+          }
+          // Si hay un error de estructura de BD, intentar eliminarla
+          if (error.message.includes('upgrade') || error.message.includes('version')) {
+            console.log('Intentando eliminar BD corrupta...');
+            await new Promise((resolve, reject) => {
+              const req = window.indexedDB.deleteDatabase(DB_NAME);
+              req.onsuccess = () => {
+                console.log('BD eliminada correctamente');
+                resolve();
+              };
+              req.onerror = () => reject(new Error('No se pudo eliminar la BD'));
+              req.onblocked = () => reject(new Error('BD bloqueada'));
+            });
+            // Recargar la página después de limpiar
+            window.location.reload();
+            return;
+          }
+        } catch (cleanupError) {
+          console.error('Error al limpiar BD:', cleanupError);
+        }
+        
         addToast('error', 'Error de inicialización', 
           'No se pudo inicializar la base de datos. Por favor, recarga la página.');
       }
@@ -2420,7 +2457,7 @@ function App() {
     );
   }
 
-  if (dbStatus === 'initializing') {
+  if (dbStatus === 'initializing' || dbStatus === 'error') {
     return (
       <div style={{ 
         display: 'flex', 
@@ -2431,12 +2468,33 @@ function App() {
         padding: '20px',
         textAlign: 'center'
       }}>
-        <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚙️</div>
-        <h2>Inicializando</h2>
-        <p>Preparando la base de datos...</p>
-        <div className="progress-bar" style={{ width: '200px', marginTop: '16px' }}>
-          <div className="progress-fill" style={{ width: '100%' }}></div>
+        <div style={{ fontSize: '48px', marginBottom: '16px' }}>
+          {dbStatus === 'error' ? '❌' : '⚙️'}
         </div>
+        <h2>{dbStatus === 'error' ? 'Error de Inicialización' : 'Inicializando'}</h2>
+        <p style={{ marginBottom: '16px' }}>
+          {initError ? initError.message : 'Preparando la base de datos...'}
+        </p>
+        {dbStatus === 'error' ? (
+          <button 
+            onClick={() => window.location.reload()} 
+            style={{
+              padding: '8px 16px',
+              fontSize: '16px',
+              backgroundColor: 'var(--color-primary)',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            }}
+          >
+            🔄 Reintentar
+          </button>
+        ) : (
+          <div className="progress-bar" style={{ width: '200px', marginTop: '16px' }}>
+            <div className="progress-fill" style={{ width: '100%' }}></div>
+          </div>
+        )}
       </div>
     );
   }
