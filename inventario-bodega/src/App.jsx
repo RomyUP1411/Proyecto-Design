@@ -19,10 +19,9 @@ const DEFAULT_COLUMNS = [
   { key: 'sale_price', label: 'Precio Venta', required: false }
 ];
 
+// Reemplazar la lista de dispositivos por UNO solo (simplificación)
 const SIMULATED_DEVICES = [
-  { id: 'PUL-001', name: 'Pulsera-001', rssi: -50, operator: '' },
-  { id: 'PUL-002', name: 'Pulsera-002', rssi: -60, operator: '' },
-  { id: 'PUL-003', name: 'Pulsera-003', rssi: -70, operator: '' }
+  { id: 'PUL-001', name: 'Pulsera-Principal', rssi: -50, operator: '' }
 ];
 
 const SAMPLE_PRODUCTS = [
@@ -120,8 +119,30 @@ function Toast({ toasts, removeToast }){
 }
 
 // Minimal Onboarding component (collect bodega, currency, operators and columns)
-function Onboarding({ onComplete }){
-  const [formData, setFormData] = useState({ bodega: '', currency: CURRENCIES[0], columns: DEFAULT_COLUMNS.map(c => c.key), operators: ['', '', ''] });
+function Onboarding({ onComplete, initialData }) {
+  const init = () => {
+    const defaults = {
+      bodega: '',
+      currency: CURRENCIES[0],
+      columns: DEFAULT_COLUMNS.map(c => c.key),
+      operators: ['', '', '']
+    };
+    if (!initialData) return defaults;
+    return {
+      bodega: initialData.bodega || defaults.bodega,
+      currency: initialData.currency || defaults.currency,
+      columns: initialData.columns || defaults.columns,
+      operators: initialData.operators || defaults.operators
+    };
+  };
+
+  const [formData, setFormData] = useState(init());
+
+  useEffect(() => {
+    if (initialData) {
+      setFormData(init());
+    }
+  }, [initialData]);
 
   const handleColumnToggle = (key) => {
     setFormData(prev => ({ ...prev, columns: prev.columns.includes(key) ? prev.columns.filter(k=>k!==key) : [...prev.columns, key] }));
@@ -791,7 +812,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
   const sectionBatches = batches.filter(batch => {
     if (sectionMode === 'inventario') {
       // Para inventario: mostrar solo ingresos normales y devoluciones de compras
-      return !batch.lot?.startsWith('DEV-SALE-') && !batch.lot?.startsWith('UNDO-');
+      return !batch.lot?.startsWith('DEV-') && !batch.lot?.startsWith('UNDO-');
     } else {
       // Para ventas: mostrar solo ventas y sus devoluciones
       return batch.lot?.startsWith('DEV-SALE-') || batch.lot?.startsWith('UNDO-');
@@ -999,69 +1020,22 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
         </div>
       </div>
 
-      {/* Vista switcher mejorado */}
+      {/* Vista simplificada: SOLO DOS botones para alternar */}
       <div style={{ marginBottom: '16px' }}>
-        <div className="tab-group" style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
           <button 
             className={`btn ${sectionMode === 'inventario' ? 'btn--primary' : 'btn--outline'}`}
             onClick={() => setSectionMode('inventario')}
           >
-            📦 Gestión de Inventario
+            📦 Mostrar Inventario
           </button>
           <button 
             className={`btn ${sectionMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
             onClick={() => setSectionMode('ventas')}
           >
-            💰 Registro de Ventas
+            💰 Mostrar Ventas
           </button>
         </div>
-        
-        {/* Subtabs según la sección */}
-        {sectionMode === 'inventario' && (
-          <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-            <button 
-              className={`btn btn--sm ${viewMode === 'ingresos' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('ingresos')}
-            >
-              � Ingresos
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'devoluciones_compra' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('devoluciones_compra')}
-            >
-              ↩️ Devoluciones a Proveedor
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'stock' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('stock')}
-            >
-              📊 Stock Actual
-            </button>
-          </div>
-        )}
-        
-        {sectionMode === 'ventas' && (
-          <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-            <button 
-              className={`btn btn--sm ${viewMode === 'registro_ventas' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('registro_ventas')}
-            >
-              💳 Registro de Ventas
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'devoluciones_venta' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('devoluciones_venta')}
-            >
-              ↩️ Devoluciones de Clientes
-            </button>
-            <button 
-              className={`btn btn--sm ${viewMode === 'historial' ? 'btn--secondary' : 'btn--outline'}`}
-              onClick={() => setViewMode('historial')}
-            >
-              📜 Historial
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -1142,29 +1116,16 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
                   opacity: isReturned ? 0.5 : 1
                 };
 
-                // Filtrar por tipo de vista dentro de cada sección
+                // Filtrar por sección únicamente
+                // if sectionMode === 'inventario' -> ocultar lotes que son devoluciones (DEV-, UNDO-)
+                // if sectionMode === 'ventas' -> mostrar sólo lotes relacionados a ventas/devoluciones (DEV-SALE-, UNDO-)
                 if (sectionMode === 'inventario') {
-                  if (viewMode === 'ingresos' && (isReturned || batch.lot?.startsWith('DEV-'))) {
+                  if (batch.lot?.startsWith('DEV-') || batch.lot?.startsWith('UNDO-')) {
                     return null;
                   }
-                  if (viewMode === 'devoluciones_compra' && !batch.lot?.startsWith('DEV-INV-')) {
+                } else { // ventas
+                  if (!batch.lot?.startsWith('DEV-SALE-') && !batch.lot?.startsWith('UNDO-')) {
                     return null;
-                  }
-                  if (viewMode === 'stock' && (batch.lot?.startsWith('DEV-') || batch.quantity <= 0)) {
-                    return null;
-                  }
-                } else { // sectionMode === 'ventas'
-                  if (viewMode === 'registro_ventas' && (batch.lot?.startsWith('DEV-') || batch.lot?.startsWith('UNDO-'))) {
-                    return null;
-                  }
-                  if (viewMode === 'devoluciones_venta' && !batch.lot?.startsWith('DEV-SALE-')) {
-                    return null;
-                  }
-                  if (viewMode === 'historial') {
-                    // En el historial mostramos todo lo relacionado con ventas
-                    if (!batch.lot?.startsWith('DEV-SALE-') && !batch.lot?.startsWith('UNDO-')) {
-                      return null;
-                    }
                   }
                 }
 
@@ -1279,8 +1240,10 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
 
 // Main App component
 function App() {
+  // ...existing state...
   const [db, setDb] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [prevOnboarding, setPrevOnboarding] = useState(null); // nuevo: para reconfigurar sin borrar datos
   const [activeView, setActiveView] = useState('dashboard');
   
   // Device state
@@ -1303,14 +1266,35 @@ function App() {
     initDB().then(async (database) => {
       setDb(database);
       
-      // Load settings
+      // Load settings and auto-conectar si existe configuración
       try {
         const savedSettings = await database.get('settings', 'onboarding');
         if (savedSettings) {
           setSettings(savedSettings.value);
+
+          // Mapear operadores a la única pulsera y seleccionar dispositivo
+          const ops = savedSettings.value?.operators || [];
+          const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: ops[i] || d.operator }));
+          setDevices(mapped);
+          const first = mapped[0];
+          if (first) {
+            setSelectedDevice(first);
+            setConnected(true); // auto-conexión solicitada
+            addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
+            setEvents(prev => [{
+              id: Date.now(),
+              type: 'system',
+              sku: 'SYSTEM',
+              name: 'Sensor de ventas conectado automáticamente',
+              quantity: 0,
+              timestamp: nowISO(),
+              device_id: first.id,
+              operator: 'system'
+            }, ...prev.slice(0, 19)]);
+          }
         }
       } catch (error) {
-        console.log('No saved settings found');
+        console.log('No saved settings found', error);
       }
       
       // Load data
@@ -1424,20 +1408,30 @@ function App() {
   };
   
   const handleOnboardingComplete = async (formData) => {
-    // If DB isn't ready yet, accept the settings in memory so the UI continues
     setSettings(formData);
     addToast('success', '¡Bienvenido!', 'Configuración aplicada (se persistirá automáticamente).');
 
-    // Map provided operators (up to 3) to the simulated devices so pulseras quedan asignadas
+    // Mapear operadores a la única pulsera y auto-conectar
     try {
       const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: (formData.operators && formData.operators[i]) ? formData.operators[i] : d.operator }));
       setDevices(mapped);
-      // If selectedDevice is one of the simulated ones, update it to get the operator
-      const updatedSelected = mapped.find(md => md.id === (selectedDevice && selectedDevice.id)) || mapped[0];
-      if (updatedSelected) setSelectedDevice(updatedSelected);
-    } catch (e) {
-      console.error('No se pudo mapear operadores a dispositivos:', e);
-    }
+      const updatedSelected = mapped[0];
+      if (updatedSelected) {
+        setSelectedDevice(updatedSelected);
+        setConnected(true);
+        addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
+        setEvents(prev => [{
+          id: Date.now(),
+          type: 'system',
+          sku: 'SYSTEM',
+          name: 'Sensor de ventas conectado',
+          quantity: 0,
+          timestamp: nowISO(),
+          device_id: updatedSelected.id,
+          operator: 'system'
+        }, ...prev.slice(0, 19)]);
+      }
+    } catch (e) { /* ignore */ }
 
     try {
       if (db) {
@@ -1447,33 +1441,35 @@ function App() {
         });
         addToast('success', 'Configuración guardada', 'La configuración fue persistida en la base de datos');
       } else {
-        // Save to localStorage as fallback; will be written when DB initializes
         try { localStorage.setItem('pending_onboarding', JSON.stringify(formData)); } catch (e) { /* ignore */ }
       }
     } catch (error) {
-      console.error('Error saving settings:', error);
       addToast('warning', 'Persistencia pendiente', 'No se pudo guardar ahora; se intentará al inicializar la BD');
     }
   };
 
-  // When DB becomes available, persist any pending onboarding saved to localStorage
+  // Nuevo: reconfigurar sin borrar BD — carga onboarding con valores actuales
+  const handleReconfigurar = () => {
+    setPrevOnboarding(settings || null);
+    setSettings(null); // mostrar onboarding para editar
+    addToast('info', 'Reconfigurar', 'La configuración actual se cargará para edición (no se eliminarán datos).');
+  };
+
+  // Cuando se conecta el dispositivo, mostrar mensaje en el feed de eventos
   useEffect(() => {
-    if (!db) return;
-    try {
-      const raw = localStorage.getItem('pending_onboarding');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        db.put('settings', { key: 'onboarding', value: parsed }).then(() => {
-          localStorage.removeItem('pending_onboarding');
-          addToast('success', 'Configuración persistida', 'La configuración inicial fue guardada en la BD');
-        }).catch(err => {
-          console.error('No se pudo persistir onboarding pendiente:', err);
-        });
-      }
-    } catch (e) {
-      console.error('Error al procesar pending_onboarding', e);
+    if (connected && selectedDevice) {
+      setEvents(prev => [{
+        id: Date.now(),
+        type: 'system',
+        sku: 'SYSTEM',
+        name: 'Conexión establecida',
+        quantity: 0,
+        timestamp: nowISO(),
+        device_id: selectedDevice.id,
+        operator: 'system'
+      }, ...prev.slice(0, 19)]);
     }
-  }, [db]);
+  }, [connected, selectedDevice]);
   
   const handleConnect = () => {
     if (!selectedDevice?.operator) {
@@ -2096,7 +2092,7 @@ function App() {
     setIsExporting(false);
   };
   
-  // Show onboarding if no settings
+  // Si no hay configuración, mostramos Onboarding
   if (!settings) {
     return <Onboarding onComplete={handleOnboardingComplete} />;
   }
@@ -2131,24 +2127,7 @@ function App() {
           <div>
             <button 
               className="btn btn--outline btn--sm"
-              onClick={() => {
-                // Mostrar el nombre actual de la bodega y permitir editar
-                const current = settings?.bodega || '';
-                const newName = prompt('Editar nombre de la bodega (deja igual para sólo reconfigurar):', current);
-                if (newName === null) return; // cancel
-                if (newName !== current) {
-                  if (!confirm('Cambiar el nombre de la bodega eliminará la base de datos y el progreso. ¿Deseas continuar?')) return;
-                  // Reset DB and force onboarding
-                  resetDatabase();
-                  setSettings(null);
-                  addToast('info', 'Reconfigurar', 'La base de datos fue reiniciada. Ingresa la nueva configuración.');
-                } else {
-                  // Same name -> just reconfigure (go to onboarding to edit other settings)
-                  if (confirm('¿Deseas reconfigurar la aplicación? No se eliminará la BD si mantienes el mismo nombre.')) {
-                    setSettings(null);
-                  }
-                }
-              }}
+              onClick={handleReconfigurar}
             >
               ⚙️ Reconfigurar
             </button>
@@ -2248,4 +2227,5 @@ function App() {
     </div>
   );
 }
+
 export default App;
