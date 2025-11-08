@@ -115,13 +115,12 @@ async function initDB(){
 function Toast({ toasts, removeToast }){
   useEffect(() => {
     const timeouts = toasts.map(toast => {
-      if (toast.autoHide !== false) {
-          // Establecer diferentes tiempos según el tipo
-          const timeout = toast.type === 'success' ? 3000 : 
-                         toast.type === 'error' ? 5000 : 4000;
-          return setTimeout(() => removeToast(toast.id), timeout);
-      }
-      return null;
+      // Si explicitamente se pide no auto-hide, respetarlo
+      if (toast.autoHide === false) return null;
+
+      // Permitir que cada toast defina su propia duración; si no, usar por tipo
+      const timeoutMs = (typeof toast.duration === 'number') ? toast.duration : (toast.type === 'success' ? 3000 : (toast.type === 'error' ? 5000 : 4000));
+      return setTimeout(() => removeToast(toast.id), timeoutMs);
     });
     
     return () => {
@@ -1750,8 +1749,11 @@ function App() {
   };
   
   const addToast = (type, title, message) => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, type, title, message }]);
+    // Accept optional 4th param as options (duration, autoHide)
+    const opts = typeof arguments[3] === 'object' && arguments[3] ? arguments[3] : {};
+    // Use a more unique id to avoid collisions
+    const id = `${Date.now()}-${Math.floor(Math.random()*100000)}`;
+    setToasts(prev => [...prev, { id, type, title, message, ...opts }]);
   };
   
   const removeToast = (id) => {
