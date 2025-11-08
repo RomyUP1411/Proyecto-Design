@@ -509,8 +509,8 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
     await new Promise(res => setTimeout(res, 800));
 
     const randomProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
-  // Declarar selectedProduct antes de usarla más abajo (evita TDZ/ReferenceError)
-  let selectedProduct = randomProduct;
+    // Producto elegido (se ajusta según disponibilidad/semilla)
+    let selectedProduct = randomProduct;
 
     // Verificar stock usando batches recibido como prop
     const stockByProduct = {};
@@ -533,7 +533,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
         // Primeros 10 eventos -> ingresos con productos no usados
         const unusedProducts = SAMPLE_PRODUCTS.filter(p => !(batches || []).some(b => b.product_sku === p.sku));
         if (unusedProducts.length > 0) {
-          selectedProduct = unusedProducts[0];
+          selectedProduct = unusedProducts[Math.floor(Math.random() * unusedProducts.length)];
         }
         randomEvent = 'ingreso';
         setSimSinceReset(prev => prev + 1);
@@ -786,18 +786,13 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
           <button
             className="btn btn--secondary btn--full-width btn--lg"
             onClick={async () => {
-              // Simular 5 ventas rápidas (forzar tipo 'venta')
-              for (let i = 0; i < 5; i++) {
-                if (!connected || !salesSensorConnected) break;
-                await new Promise(r => setTimeout(r, 800));
-                // Forzamos una venta
-                await handleSimulateScan('venta');
-              }
+              if (!connected || !salesSensorConnected) return;
+              await handleSimulateScan('venta');
             }}
             disabled={!connected || isScanning || !salesSensorConnected}
             style={{ marginBottom: '12px' }}
           >
-            🏷️ Simular 5 Ventas Rápidas
+            🏷️ Simular 1 Venta
           </button>
 
           <button
