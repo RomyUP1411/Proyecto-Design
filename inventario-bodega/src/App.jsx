@@ -240,88 +240,129 @@ function Onboarding({ onComplete, initialData }) {
 }
 
 // Device Panel component
-function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChange, availableDevices }) {
+function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChange, availableDevices, salesSensorConnected, onSensorConnect, onSensorDisconnect }) {
   return (
     <div className="panel">
-      <h3 style={{ marginBottom: '16px' }}>🔗 Estado del Dispositivo</h3>
-      
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-          <div className={`device-indicator device-indicator--${connected ? 'connected' : 'disconnected'}`}></div>
-          <strong>{device.name}</strong>
-        </div>
-        <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-          ID: {device.id}
-        </div>
-        {device?.operator ? (
-          <div style={{ fontSize: '14px', color: 'var(--color-success)', marginBottom: '8px' }}>
-            👤 {device.operator}
+      {/* Panel de Pulsera */}
+      <div style={{ marginBottom: '24px', paddingBottom: '24px', borderBottom: '1px solid var(--color-border)' }}>
+        <h3 style={{ marginBottom: '16px' }}>🔗 Estado de la Pulsera</h3>
+        
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+            <div className={`device-indicator device-indicator--${connected ? 'connected' : 'disconnected'}`}></div>
+            <strong>{device.name}</strong>
           </div>
-        ) : (
-          <div style={{ fontSize: '13px', color: 'var(--color-warning)', marginBottom: '8px' }}>
-            ⚠️ Sin operador asignado
+          <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+            ID: {device.id}
           </div>
-        )}
-        <RSSIIndicator rssi={device.rssi} connected={connected} />
-        <div style={{ marginTop: '8px' }}>
-          <span className={`status ${connected ? 'status--success' : 'status--error'}`}>
-            {connected ? 'Conectado (simulado)' : 'Desconectado'}
-          </span>
+          {device?.operator ? (
+            <div style={{ fontSize: '14px', color: 'var(--color-success)', marginBottom: '8px' }}>
+              👤 {device.operator}
+            </div>
+          ) : (
+            <div style={{ fontSize: '13px', color: 'var(--color-warning)', marginBottom: '8px' }}>
+              ⚠️ Sin operador asignado
+            </div>
+          )}
+          <RSSIIndicator rssi={device.rssi} connected={connected} />
+          <div style={{ marginTop: '8px' }}>
+            <span className={`status ${connected ? 'status--success' : 'status--error'}`}>
+              {connected ? 'Conectado (simulado)' : 'Desconectado'}
+            </span>
+          </div>
         </div>
-      </div>
-      
-      <div style={{ marginBottom: '24px' }}>
-        <button 
-          className="btn btn--primary btn--sm btn--full-width"
-          onClick={connected ? onDisconnect : onConnect}
-          style={{ marginBottom: '8px' }}
-          disabled={!connected && !device?.operator}
-          title={!connected && !device?.operator ? 'Asigna un operador a esta pulsera antes de conectar' : ''}
-        >
-          {connected ? '🔌 Desconectar' : '🔌 Conectar'}
-        </button>
-      </div>
-      
-      <div>
-        <h4 style={{ fontSize: '16px', marginBottom: '12px' }}>📡 Dispositivos Disponibles</h4>
-        {availableDevices.map(dev => (
-          <div key={dev.id} style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
-              <input
-                type="radio"
-                name="device"
-                value={dev.id}
-                checked={device.id === dev.id}
-                onChange={() => onDeviceChange(dev)}
-                disabled={connected && dev.id !== device.id}
-                style={{ marginRight: '8px' }}
-              />
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: '500' }}>{dev.name}</div>
-                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                  {dev.id} • RSSI: {dev.rssi} dBm
+        
+        <div style={{ marginBottom: '24px' }}>
+          <button 
+            className="btn btn--primary btn--sm btn--full-width"
+            onClick={connected ? onDisconnect : onConnect}
+            style={{ marginBottom: '8px' }}
+            disabled={!connected && !device?.operator}
+            title={!connected && !device?.operator ? 'Asigna un operador a esta pulsera antes de conectar' : ''}
+          >
+            {connected ? '🔌 Desconectar' : '🔌 Conectar'}
+          </button>
+        </div>
+
+        <div>
+          <h4 style={{ fontSize: '16px', marginBottom: '12px' }}>📡 Dispositivos Disponibles</h4>
+          {availableDevices.map(dev => (
+            <div key={dev.id} style={{ marginBottom: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
+                <input
+                  type="radio"
+                  name="device"
+                  value={dev.id}
+                  checked={device.id === dev.id}
+                  onChange={() => onDeviceChange(dev)}
+                  disabled={connected && dev.id !== device.id}
+                  style={{ marginRight: '8px' }}
+                />
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '500' }}>{dev.name}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                    {dev.id} • RSSI: {dev.rssi} dBm
+                  </div>
                 </div>
-              </div>
-            </label>
+              </label>
+            </div>
+          ))}
+          {connected && (
+            <p style={{ fontSize: '12px', color: 'var(--color-warning)', marginTop: '8px' }}>
+              💡 Desconecta primero para cambiar de dispositivo
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Panel del Sensor de Ventas */}
+      <div>
+        <h3 style={{ marginBottom: '16px' }}>📊 Sensor de Ventas</h3>
+        
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+            <div className={`device-indicator device-indicator--${salesSensorConnected ? 'connected' : 'disconnected'}`}></div>
+            <strong>Sensor de Ventas</strong>
           </div>
-        ))}
-        {connected && (
-          <p style={{ fontSize: '12px', color: 'var(--color-warning)', marginTop: '8px' }}>
-            💡 Desconecta primero para cambiar de dispositivo
-          </p>
-        )}
+          <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+            ID: SALES-001
+          </div>
+          <div style={{ marginTop: '8px' }}>
+            <span className={`status ${salesSensorConnected ? 'status--success' : 'status--error'}`}>
+              {salesSensorConnected ? 'Conectado (simulado)' : 'Desconectado'}
+            </span>
+          </div>
+        </div>
+        
+        <div>
+          <button 
+            className="btn btn--primary btn--sm btn--full-width"
+            onClick={salesSensorConnected ? onSensorDisconnect : onSensorConnect}
+            disabled={!connected} // Solo permitir conectar si la pulsera está conectada
+            title={!connected ? 'Conecta la pulsera primero' : ''}
+          >
+            {salesSensorConnected ? '🔌 Desconectar Sensor' : '🔌 Conectar Sensor'}
+          </button>
+          {!connected && (
+            <p style={{ fontSize: '12px', color: 'var(--color-warning)', marginTop: '8px' }}>
+              💡 Conecta la pulsera antes de conectar el sensor
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 // Simulate Panel component
-function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
+function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
   const [activeTab, setActiveTab] = useState('form');
   const [jsonInput, setJsonInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [continuousMode, setContinuousMode] = useState(false);
   const [scanCount, setScanCount] = useState(0);
+  
+  const canSimulate = connected && salesSensorConnected;
   const intervalRef = useRef(null);
   
   const [formData, setFormData] = useState({
@@ -1314,6 +1355,7 @@ function App() {
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
   const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]); // will be updated after onboarding if operators provided
   const [connected, setConnected] = useState(false);
+  const [salesSensorConnected, setSalesSensorConnected] = useState(false);
   const [simSinceReset, setSimSinceReset] = useState(0);
   
   // Data state
@@ -1655,6 +1697,12 @@ function App() {
           `${movement.quantity} unidades de ${movement.name} agregadas al inventario`);
         
       } else if (payload.event === 'venta') {
+        // Verificar que ambos dispositivos estén conectados
+        if (!connected || !salesSensorConnected) {
+          addToast('error', 'Error', 'Se requiere que tanto la pulsera como el sensor de ventas estén conectados');
+          return;
+        }
+
         // Transacción de venta 
         const tx = db.transaction(['sales', 'batches', 'movements'], 'readwrite');
         
@@ -2256,11 +2304,41 @@ function App() {
               onDisconnect={handleDisconnect}
               onDeviceChange={handleDeviceChange}
               availableDevices={devices}
+              salesSensorConnected={salesSensorConnected}
+              onSensorConnect={() => {
+                setSalesSensorConnected(true);
+                addToast('success', 'Sensor conectado', 'Sensor de ventas conectado exitosamente');
+                setEvents(prev => [{
+                  id: Date.now(),
+                  type: 'system',
+                  sku: 'SYSTEM',
+                  name: 'Sensor de ventas conectado',
+                  quantity: 0,
+                  timestamp: nowISO(),
+                  device_id: 'SALES-001',
+                  operator: 'system'
+                }, ...prev.slice(0, 19)]);
+              }}
+              onSensorDisconnect={() => {
+                setSalesSensorConnected(false);
+                addToast('warning', 'Sensor desconectado', 'Sensor de ventas desconectado');
+                setEvents(prev => [{
+                  id: Date.now(),
+                  type: 'system',
+                  sku: 'SYSTEM',
+                  name: 'Sensor de ventas desconectado',
+                  quantity: 0,
+                  timestamp: nowISO(),
+                  device_id: 'SALES-001',
+                  operator: 'system'
+                }, ...prev.slice(0, 19)]);
+              }}
             />
             
             {/* Center Panel - Simulation */}
             <SimulatePanel
               connected={connected}
+              salesSensorConnected={salesSensorConnected}
               onProcessEvent={handleProcessEvent}
               settings={settings}
               device={selectedDevice}
