@@ -1487,6 +1487,7 @@ function App() {
   const [prevOnboarding, setPrevOnboarding] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
   const [dbStatus, setDbStatus] = useState('initializing'); // 'initializing', 'ready', 'error'
+  const [dbErrorMessage, setDbErrorMessage] = useState(null);
   
   // Device state
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
@@ -1510,49 +1511,93 @@ function App() {
   useEffect(() => {
     const initializeApp = async () => {
       setDbStatus('initializing');
-      try {
-        // Inicializar la base de datos
-        const database = await initDB();
-        setDb(database);
-        
-        // Cargar configuración
-        const savedSettings = await database.get('settings', 'onboarding');
-        if (savedSettings) {
-          setSettings(savedSettings.value);
+      setDbErrorMessage(null);
+      let attempts = 0;
+      const maxAttempts = 2;
 
-          // Mapear operadores a dispositivos
-          const ops = savedSettings.value?.operators || [];
-          const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: ops[i] || d.operator }));
-          setDevices(mapped);
-          const first = mapped[0];
-          
-          if (first) {
-            setSelectedDevice(first);
-            setConnected(true);
-            addToast('info', 'Conexión automática', 'Sensor de ventas activado automáticamente');
-            setEvents(prev => [{
-              id: Date.now(),
-              type: 'system',
-              sku: 'SYSTEM',
-              name: 'Sistema inicializado y conectado',
-              quantity: 0,
-              timestamp: nowISO(),
-              device_id: first.id,
-              operator: 'system'
-            }, ...prev.slice(0, 19)]);
+      while (attempts < maxAttempts) {
+        try {
+          attempts++;
+
+          if (!window.indexedDB) {
+            throw new Error('IndexedDB no está disponible en este navegador/entorno');
           }
-        }
 
-        // Cargar datos iniciales
-        await refreshData(database);
-        
-        setDbStatus('ready');
-        console.log('Aplicación inicializada correctamente');
-      } catch (error) {
-        console.error('Error al inicializar la aplicación:', error);
-        setDbStatus('error');
-        addToast('error', 'Error de inicialización', 
-          'No se pudo inicializar la base de datos. Por favor, recarga la página.');
+          // Inicializar la base de datos
+          const database = await initDB();
+          setDb(database);
+
+          // Cargar configuración
+          try {
+            const savedSettings = await database.get('settings', 'onboarding');
+            if (savedSettings) {
+              setSettings(savedSettings.value);
+
+              // Mapear operadores a dispositivos
+              const ops = savedSettings.value?.operators || [];
+              const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: ops[i] || d.operator }));
+              setDevices(mapped);
+              const first = mapped[0];
+
+              if (first) {
+                setSelectedDevice(first);
+                setConnected(true);
+                addToast('info', 'Conexión automática', 'Sensor de ventas activado automáticamente');
+                setEvents(prev => [{
+                  id: Date.now(),
+                  type: 'system',
+                  sku: 'SYSTEM',
+                  name: 'Sistema inicializado y conectado',
+                  quantity: 0,
+                  timestamp: nowISO(),
+                  device_id: first.id,
+                  operator: 'system'
+                }, ...prev.slice(0, 19)]);
+              }
+            }
+          } catch (errSettings) {
+            console.warn('No se pudieron cargar settings (no crítico):', errSettings);
+          }
+
+          // Cargar datos iniciales
+          await refreshData(database);
+
+          setDbStatus('ready');
+          console.log('Aplicación inicializada correctamente');
+          return;
+        } catch (error) {
+          console.error('Error al inicializar la aplicación (intento ' + attempts + '):', error);
+          // Guardar mensaje para mostrar en UI
+          setDbErrorMessage(error.message || String(error));
+
+          // Si no hemos llegado al máximo de intentos, intentar borrar DB y reintentar
+          if (attempts < maxAttempts) {
+            try {
+              console.warn('Intentando borrar la base de datos y reintentar...');
+              const delReq = window.indexedDB.deleteDatabase(DB_NAME);
+              await new Promise((res, rej) => {
+                delReq.onsuccess = () => res(true);
+                delReq.onerror = () => rej(new Error('No se pudo borrar la base de datos'));
+                delReq.onblocked = () => {
+                  console.warn('El borrado de la DB está bloqueado por otra pestaña');
+                  // permitir que el loop continúe y falle si está bloqueado
+                  res(false);
+                };
+              });
+              // pequeña espera antes del siguiente intento
+              await new Promise(r => setTimeout(r, 500));
+              continue;
+            } catch (delErr) {
+              console.error('Error al borrar la DB durante el reintento:', delErr);
+              break;
+            }
+          }
+
+          // Si llegamos aquí, marcar error y mostrar mensaje
+          setDbStatus('error');
+          addToast('error', 'Error de inicialización', 'No se pudo inicializar la base de datos. ' + (error.message || ''));
+          return;
+        }
       }
     };
 
@@ -2405,6 +2450,12 @@ function App() {
         <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
         <h2>Error de Inicialización</h2>
         <p>No se pudo inicializar la base de datos. Por favor, intenta lo siguiente:</p>
+        {dbErrorMessage && (
+          <div style={{ marginTop: 12, padding: 12, background: 'rgba(0,0,0,0.03)', borderRadius: 6, maxWidth: 680 }}>
+            <strong>Detalles:</strong>
+            <div style={{ marginTop: 6, fontSize: 13, color: 'var(--color-text-secondary)' }}>{dbErrorMessage}</div>
+          </div>
+        )}
         <ol style={{ textAlign: 'left' }}>
           <li>Recarga la página</li>
           <li>Limpia el caché del navegador</li>
@@ -2416,6 +2467,25 @@ function App() {
           style={{ marginTop: '16px' }}
         >
           🔄 Recargar Aplicación
+        </button>
+        <button
+          className="btn btn--outline"
+          onClick={async () => {
+            try {
+              const delReq = window.indexedDB.deleteDatabase(DB_NAME);
+              await new Promise((res, rej) => {
+                delReq.onsuccess = () => res(true);
+                delReq.onerror = () => rej(new Error('No se pudo borrar la base de datos'));
+                delReq.onblocked = () => res(false);
+              });
+            } catch (e) {
+              console.error('Error al borrar BD desde UI:', e);
+            }
+            window.location.reload();
+          }}
+          style={{ marginLeft: 12, marginTop: 16 }}
+        >
+          🧹 Reset BD
         </button>
       </div>
     );
