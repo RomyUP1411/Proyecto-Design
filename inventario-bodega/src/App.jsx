@@ -98,22 +98,51 @@ async function initDB(){
 // Simple Toast component
 function Toast({ toasts, removeToast }){
   useEffect(() => {
-    toasts.forEach(toast => {
+    const timeouts = toasts.map(toast => {
       if (toast.autoHide !== false) {
-        const t = setTimeout(() => removeToast(toast.id), 3000);
-        return () => clearTimeout(t);
+        return setTimeout(() => removeToast(toast.id), 3000);
       }
-      return undefined;
+      return null;
     });
-  }, [toasts]);
+    
+    return () => {
+      timeouts.forEach(t => t && clearTimeout(t));
+    };
+  }, [toasts, removeToast]);
 
   return (
     <div className="toast-container" style={{ position: 'fixed', top: 16, right: 16, zIndex: 9999 }}>
       {toasts.map(toast => (
-        <div key={toast.id} className={`toast toast--${toast.type}`} style={{ background: 'var(--color-surface)', padding: 12, marginBottom: 8, border: '1px solid var(--color-border)', borderRadius: 8, position: 'relative' }}>
-          <div style={{ fontWeight: 'bold', marginBottom: 4 }}>{toast.title}</div>
-          <div style={{ fontSize: 13 }}>{toast.message}</div>
-          <button onClick={() => removeToast(toast.id)} style={{ position: 'absolute', top: 6, right: 8, background: 'none', border: 'none', cursor: 'pointer' }}>×</button>
+        <div key={toast.id} className={`toast toast--${toast.type}`} style={{ 
+          background: 'var(--color-surface)', 
+          padding: 12, 
+          marginBottom: 8, 
+          border: '1px solid var(--color-border)', 
+          borderRadius: 8, 
+          position: 'relative',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          minWidth: '250px'
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>{toast.title}</div>
+            <div style={{ fontSize: 13 }}>{toast.message}</div>
+          </div>
+          <button 
+            onClick={() => removeToast(toast.id)} 
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              cursor: 'pointer',
+              padding: '4px 8px',
+              fontSize: '16px',
+              color: 'var(--color-text-secondary)',
+              marginLeft: '8px'
+            }}
+          >
+            ×
+          </button>
         </div>
       ))}
     </div>
@@ -2143,7 +2172,7 @@ function App() {
       
       {/* Header */}
       <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '12px 16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <h1 style={{ fontSize: '20px', margin: '0' }}>🏢</h1>
@@ -2163,6 +2192,23 @@ function App() {
             <p style={{ margin: '0', fontSize: '14px', color: 'var(--color-text-secondary)' }}>
               Moneda: {settings.currency}
             </p>
+            {/* Recuadro de conexión establecida */}
+            {connected && (
+              <div style={{
+                marginTop: '12px',
+                padding: '8px 12px',
+                background: 'var(--color-success)',
+                color: 'white',
+                borderRadius: '6px',
+                fontSize: '14px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span>📡</span>
+                <span>Conexión con sensor de ventas establecida</span>
+              </div>
+            )}
           </div>
           <div>
             <button 
