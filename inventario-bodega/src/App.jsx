@@ -66,17 +66,11 @@ function RSSIIndicator({ rssi, connected }){
 // Initialize IndexedDB (simple wrapper)
 async function initDB(){
   try {
-    const db = await openDB(DB_NAME, 2, { // Incrementé la versión para forzar la actualización
-      upgrade(db, oldVersion, newVersion) {
+    const db = await openDB(DB_NAME, 1, {
+      upgrade(db) {
         // Productos y configuración
-        if (!db.objectStoreNames.contains('products')) {
-          const productStore = db.createObjectStore('products', { keyPath: 'sku' });
-          productStore.createIndex('by_category', 'category');
-        }
-        
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'key' });
-        }
+        if (!db.objectStoreNames.contains('products')) db.createObjectStore('products', { keyPath: 'sku' });
+        if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
         
         // Unified store for inventory and sales
         if (!db.objectStoreNames.contains('batches')) {
@@ -92,20 +86,6 @@ async function initDB(){
           movStore.createIndex('by_type', 'type');
           movStore.createIndex('by_sku', 'sku');
           movStore.createIndex('by_date', 'timestamp');
-        }
-
-        // Store específica para ventas
-        if (!db.objectStoreNames.contains('sales')) {
-          const salesStore = db.createObjectStore('sales', { keyPath: 'id' });
-          salesStore.createIndex('by_date', 'timestamp');
-          salesStore.createIndex('by_sku', 'sku');
-        }
-
-        // Store para devoluciones
-        if (!db.objectStoreNames.contains('returns')) {
-          const returnsStore = db.createObjectStore('returns', { keyPath: 'id', autoIncrement: true });
-          returnsStore.createIndex('by_sale', 'sale_id');
-          returnsStore.createIndex('by_date', 'timestamp');
         }
       }
     });
@@ -383,110 +363,10 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
 // Simulate Panel component
 function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
   const [activeTab, setActiveTab] = useState('form');
+  const [jsonInput, setJsonInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
+  const [continuousMode, setContinuousMode] = useState(false);
   const [scanCount, setScanCount] = useState(0);
-  
-  // Función para generar simulación
-  // Función para simular eventos de inventario y ventas
-  const generateSimulation = async (tipo) => {
-    if (!connected) {
-      alert('⚠️ Debes conectar un dispositivo primero');
-      return;
-    }
-
-    if (tipo === 'venta' && !salesSensorConnected) {
-      alert('⚠️ El sensor de ventas debe estar conectado');
-      return;
-    }
-
-    setIsScanning(true);
-    setScanCount(prev => prev + 1);
-
-    try {
-      let selectedProduct;
-      let quantity;
-      
-      // Stock map para validar disponibilidad
-      const stockMap = {};
-      (batches || []).forEach(batch => {
-        if (!batch.lot?.startsWith('DEV-') && !batch.lot?.startsWith('UNDO-')) {
-          stockMap[batch.product_sku] = (stockMap[batch.product_sku] || 0) + (batch.quantity || 0);
-        }
-      });
-
-      if (tipo === 'venta') {
-        // Para ventas: seleccionar producto con stock disponible
-        const productsWithStock = SAMPLE_PRODUCTS.filter(p => (stockMap[p.sku] || 0) > 0);
-        
-        if (productsWithStock.length === 0) {
-          alert('⚠️ No hay productos con stock para vender');
-          setIsScanning(false);
-          return;
-        }
-
-        selectedProduct = productsWithStock[Math.floor(Math.random() * productsWithStock.length)];
-        quantity = Math.floor(Math.random() * 4) + 1; // 1-5 unidades para ventas
-
-        // Validar que la cantidad a vender no exceda el stock
-        if (quantity > (stockMap[selectedProduct.sku] || 0)) {
-          quantity = stockMap[selectedProduct.sku]; // Ajustar a stock disponible
-        }
-
-      } else {
-        // Para ingresos: primeros 10 son productos nuevos con stock inicial
-        if (simSinceReset < 10) {
-          const unusedProducts = SAMPLE_PRODUCTS.filter(p => !(batches || []).some(b => b.product_sku === p.sku));
-          if (unusedProducts.length === 0) {
-            selectedProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
-          } else {
-            selectedProduct = unusedProducts[0];
-            setSimSinceReset(prev => prev + 1);
-          }
-          quantity = Math.floor(Math.random() * 91) + 30; // 30-120 unidades para stock inicial
-        } else {
-          selectedProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
-          quantity = Math.floor(Math.random() * 41) + 10; // 10-50 unidades para reposición
-        }
-      }
-
-      // Generar el evento con datos realistas
-      const basePrice = selectedProduct.basePrice || 10;
-      const salePrice = parseFloat((basePrice * 1.4).toFixed(2));
-      
-      const simulatedPayload = {
-        event: tipo,
-        source: 'brazalete_simulado',
-        device_id: device?.id || 'BRZ-001',
-        timestamp: nowISO(),
-        barcode: `750${Math.floor(Math.random() * 1000000000)}`,
-        sku: selectedProduct.sku,
-        name: selectedProduct.name,
-        quantity: quantity,
-        purchase_price: tipo === 'venta' ? 0 : basePrice,
-        sale_price: salePrice,
-        lot: `L${new Date().getFullYear()}${String(Math.floor(Math.random() * 99) + 1).padStart(2, '0')}`,
-        expiry: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        category: selectedProduct.category,
-        bodega: settings?.bodega || 'Bodega Central',
-        operator: device?.operator || settings?.user || 'Juan'
-      };
-
-      await onProcessEvent(simulatedPayload);
-      
-      // Actualizar evento en UI
-      setEvents(prev => [{
-        id: Date.now(),
-        type: tipo === 'venta' ? 'venta' : 'ingreso_inventario',
-        ...simulatedPayload
-      }, ...prev.slice(0, 19)]);
-
-    } catch (error) {
-      console.error('Error en simulación:', error);
-      addToast('error', 'Error en simulación', error.message);
-    }
-
-    setIsScanning(false);
-  };
   
   const canSimulate = connected && salesSensorConnected;
   const intervalRef = useRef(null);
@@ -648,26 +528,32 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       randomEvent = Math.random() < 0.85 ? 'ingreso' : 'devolucion';
     }
 
-    // Generar cantidades lógicas según el tipo
+    // Para devoluciones elegimos un producto con ventas/stock previo si existe
+    let selectedProduct = randomProduct;
+    if (randomEvent === 'devolucion') {
+      // Preferir productos que tengan movimientos o lotes devueltos
+      const candidate = SAMPLE_PRODUCTS.find(p => (stockByProduct[p.sku] || 0) > 0);
+      if (candidate) selectedProduct = candidate;
+    }
+
+    // Generar cantidades lógicas
     let quantity;
-    if (tipo === 'ingreso') {
-      if (simSinceReset < 10) {
-        // Stock inicial más grande
-        quantity = Math.floor(Math.random() * 91) + 30; // 30-120 unidades
+    if (randomEvent === 'ingreso') {
+      if (typeof simSinceReset === 'number' && simSinceReset < 10) {
+        quantity = Math.floor(Math.random() * 91) + 30; // 30-120
       } else {
-        quantity = Math.floor(Math.random() * 41) + 10; // 10-50 unidades
+        quantity = Math.floor(Math.random() * 41) + 10; // 10-50
       }
-    } else if (tipo === 'venta') {
-      // Para ventas, entre 1 y 5 unidades
+    } else {
+      // devolucion: 1-5 unidades
       quantity = Math.floor(Math.random() * 5) + 1;
     }
 
-    // Generar precios realistas
+    // Precios basados en el producto
     const basePrice = selectedProduct.basePrice || parseFloat((Math.random() * 15 + 5).toFixed(2));
-    const purchase_price = tipo === 'venta' ? 0 : basePrice;
+    const purchase_price = randomEvent === 'ingreso' ? basePrice : basePrice * 0.75;
     const sale_price = parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2));
 
-    // Precios basados en el producto
     const simulatedPayload = {
       event: randomEvent,
       source: 'brazalete_simulado',
@@ -859,22 +745,48 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
           </div>
           
           <button 
-             className="btn btn--primary btn--full-width btn--lg"
-             onClick={() => handleSimulateScan('ingreso')}
-             disabled={!connected || isScanning}
-             style={{ marginBottom: '12px' }}
-           >
-             {isScanning ? '⏳ Escaneando...' : '� Simular Ingreso a Inventario'}
-           </button>
-           
-           <button 
-             className="btn btn--secondary btn--full-width btn--lg"
-             onClick={() => handleSimulateScan('venta')}
-             disabled={!connected || !salesSensorConnected || isScanning}
-             style={{ marginBottom: '12px' }}
-           >
-             {isScanning ? '⏳ Escaneando...' : '💰 Simular Venta'}
-           </button>          <div style={{ marginBottom: '16px' }}>
+            className="btn btn--primary btn--full-width btn--lg"
+            onClick={handleSimulateScan}
+            disabled={!connected || isScanning}
+            style={{ marginBottom: '12px' }}
+          >
+            {isScanning ? '⏳ Escaneando...' : '🔍 Simular Scan'}
+          </button>
+          
+          <button
+            className="btn btn--secondary btn--full-width btn--lg"
+            onClick={async () => {
+              // Simular 5 ventas rápidas (forzar tipo 'venta')
+              for (let i = 0; i < 5; i++) {
+                if (!connected || !salesSensorConnected) break;
+                await new Promise(r => setTimeout(r, 800));
+                // Forzamos una venta
+                await handleSimulateScan('venta');
+              }
+            }}
+            disabled={!connected || isScanning || !salesSensorConnected}
+            style={{ marginBottom: '12px' }}
+          >
+            🏷️ Simular 5 Ventas Rápidas
+          </button>
+
+          <button
+            className="btn btn--outline btn--full-width btn--lg"
+            onClick={async () => {
+              // Simular 5 devoluciones de ventas rápidas (forzar tipo 'devolucion')
+              for (let i = 0; i < 5; i++) {
+                if (!connected) break;
+                await new Promise(r => setTimeout(r, 800));
+                await handleSimulateScan('devolucion');
+              }
+            }}
+            disabled={!connected || isScanning}
+            style={{ marginBottom: '12px' }}
+          >
+            ↩️ Simular 5 Devoluciones Rápidas
+          </button>
+          
+          <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
               <input
                 type="checkbox"
@@ -1474,7 +1386,6 @@ function App() {
   const [prevOnboarding, setPrevOnboarding] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
   const [dbStatus, setDbStatus] = useState('initializing'); // 'initializing', 'ready', 'error'
-  const [initError, setInitError] = useState(null); // Para mostrar errores de inicialización
   
   // Device state
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
@@ -1496,35 +1407,15 @@ function App() {
   useEffect(() => {
     const initializeApp = async () => {
       setDbStatus('initializing');
-      setInitError(null);
       try {
-        console.log('Iniciando aplicación...');
         // Inicializar la base de datos
-        const database = await initDB().catch(e => {
-          console.error('Error al inicializar BD:', e);
-          throw new Error('No se pudo inicializar la base de datos: ' + e.message);
-        });
-        console.log('Base de datos inicializada');
+        const database = await initDB();
         setDb(database);
         
         // Cargar configuración
-        const savedSettings = await database.get('settings', 'onboarding').catch(e => {
-          console.error('Error al cargar configuración:', e);
-          throw new Error('No se pudo cargar la configuración: ' + e.message);
-        });
+        const savedSettings = await database.get('settings', 'onboarding');
         if (savedSettings) {
           setSettings(savedSettings.value);
-
-          // Intentar cargar configuración pendiente del localStorage
-          try {
-            const pendingConfig = localStorage.getItem('pending_onboarding');
-            if (pendingConfig) {
-              const parsed = JSON.parse(pendingConfig);
-              await database.put('settings', { key: 'onboarding', value: parsed });
-              setSettings(parsed);
-              localStorage.removeItem('pending_onboarding');
-            }
-          } catch (e) { /* ignore */ }
 
           // Mapear operadores a dispositivos
           const ops = savedSettings.value?.operators || [];
@@ -1535,17 +1426,16 @@ function App() {
           if (first) {
             setSelectedDevice(first);
             setConnected(true);
-            setSalesSensorConnected(true); // Activar también el sensor de ventas
-            addToast('success', 'Sistema Iniciado', 'Dispositivos conectados automáticamente');
+            addToast('info', 'Conexión automática', 'Sensor de ventas activado automáticamente');
             setEvents(prev => [{
               id: Date.now(),
               type: 'system',
               sku: 'SYSTEM',
-              name: 'Sistema inicializado y dispositivos conectados',
+              name: 'Sistema inicializado y conectado',
               quantity: 0,
               timestamp: nowISO(),
               device_id: first.id,
-              operator: first.operator || 'system'
+              operator: 'system'
             }, ...prev.slice(0, 19)]);
           }
         }
@@ -1558,33 +1448,6 @@ function App() {
       } catch (error) {
         console.error('Error al inicializar la aplicación:', error);
         setDbStatus('error');
-        setInitError(error);
-        
-        // Intentar limpiar la base de datos si hay un error crítico
-        try {
-          if (db) {
-            db.close();
-          }
-          // Si hay un error de estructura de BD, intentar eliminarla
-          if (error.message.includes('upgrade') || error.message.includes('version')) {
-            console.log('Intentando eliminar BD corrupta...');
-            await new Promise((resolve, reject) => {
-              const req = window.indexedDB.deleteDatabase(DB_NAME);
-              req.onsuccess = () => {
-                console.log('BD eliminada correctamente');
-                resolve();
-              };
-              req.onerror = () => reject(new Error('No se pudo eliminar la BD'));
-              req.onblocked = () => reject(new Error('BD bloqueada'));
-            });
-            // Recargar la página después de limpiar
-            window.location.reload();
-            return;
-          }
-        } catch (cleanupError) {
-          console.error('Error al limpiar BD:', cleanupError);
-        }
-        
         addToast('error', 'Error de inicialización', 
           'No se pudo inicializar la base de datos. Por favor, recarga la página.');
       }
@@ -1710,23 +1573,19 @@ function App() {
       if (updatedSelected) {
         setSelectedDevice(updatedSelected);
         setConnected(true);
-        setSalesSensorConnected(true); // Activar también el sensor de ventas
-        addToast('info', 'Dispositivos conectados', 'Pulsera y sensor de ventas activados automáticamente');
+        addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
         setEvents(prev => [{
           id: Date.now(),
           type: 'system',
           sku: 'SYSTEM',
-          name: 'Dispositivos conectados y listos',
+          name: 'Sensor de ventas conectado',
           quantity: 0,
           timestamp: nowISO(),
           device_id: updatedSelected.id,
-          operator: formData.operators[0] || 'system'
+          operator: 'system'
         }, ...prev.slice(0, 19)]);
       }
-    } catch (e) { 
-      console.error('Error conectando dispositivos:', e);
-      addToast('error', 'Error de conexión', 'No se pudieron conectar los dispositivos automáticamente');
-    }
+    } catch (e) { /* ignore */ }
 
     try {
       if (db) {
@@ -1814,32 +1673,25 @@ function App() {
   };
   
   const handleProcessEvent = async (payload) => {
-    if (!db) {
-      console.error('Base de datos no disponible');
-      return;
-    }
-
-    if (!connected) {
-      console.error('Dispositivo no conectado');
+    if (!db || !connected) {
+      addToast('error', 'Error', !db ? 'Base de datos no disponible' : 'Dispositivo no conectado');
       return;
     }
     
     try {
-      console.log('Procesando evento:', payload);
-      
       // Validar datos básicos
       if (!payload.sku && !payload.barcode) {
-        console.error('Se requiere SKU o código de barras');
+        addToast('error', 'Error', 'Se requiere SKU o código de barras');
         return;
       }
       
       if (!payload.name) {
-        console.error('Se requiere nombre del producto');
+        addToast('error', 'Error', 'Se requiere nombre del producto');
         return;
       }
       
       // Base movement record con valores por defecto
-      const baseMovement = {
+      const movement = {
         type: payload.event,
         sku: payload.sku || payload.barcode,
         name: payload.name,
@@ -2457,7 +2309,7 @@ function App() {
     );
   }
 
-  if (dbStatus === 'initializing' || dbStatus === 'error') {
+  if (dbStatus === 'initializing') {
     return (
       <div style={{ 
         display: 'flex', 
@@ -2468,33 +2320,12 @@ function App() {
         padding: '20px',
         textAlign: 'center'
       }}>
-        <div style={{ fontSize: '48px', marginBottom: '16px' }}>
-          {dbStatus === 'error' ? '❌' : '⚙️'}
+        <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚙️</div>
+        <h2>Inicializando</h2>
+        <p>Preparando la base de datos...</p>
+        <div className="progress-bar" style={{ width: '200px', marginTop: '16px' }}>
+          <div className="progress-fill" style={{ width: '100%' }}></div>
         </div>
-        <h2>{dbStatus === 'error' ? 'Error de Inicialización' : 'Inicializando'}</h2>
-        <p style={{ marginBottom: '16px' }}>
-          {initError ? initError.message : 'Preparando la base de datos...'}
-        </p>
-        {dbStatus === 'error' ? (
-          <button 
-            onClick={() => window.location.reload()} 
-            style={{
-              padding: '8px 16px',
-              fontSize: '16px',
-              backgroundColor: 'var(--color-primary)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            🔄 Reintentar
-          </button>
-        ) : (
-          <div className="progress-bar" style={{ width: '200px', marginTop: '16px' }}>
-            <div className="progress-fill" style={{ width: '100%' }}></div>
-          </div>
-        )}
       </div>
     );
   }
