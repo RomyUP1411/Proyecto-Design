@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useRef} from "react";
+import React, { useEffect, useState } from "react";
 import { openDB } from 'idb';
 
 // Basic constants used across the app
@@ -1417,13 +1417,26 @@ function App() {
   const [db, setDb] = useState(null);
   const [settings, setSettings] = useState(null);
   const [dbStatus, setDbStatus] = useState('initializing');
+  const [toasts, setToasts] = useState([]);
+  const [events, setEvents] = useState([]);
   
   // Device state
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
-  const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]); // will be updated after onboarding if operators provided
+  const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]);
   const [connected, setConnected] = useState(false);
   const [salesSensorConnected, setSalesSensorConnected] = useState(false);
   const [simSinceReset, setSimSinceReset] = useState(0);
+  
+  // UI state
+  const [activeView, setActiveView] = useState('dashboard');
+  const [isExporting, setIsExporting] = useState(false);
+  const [showConnectionModal, setShowConnectionModal] = useState(false);
+  const [prevOnboarding, setPrevOnboarding] = useState(null);
+  
+  // Data state
+  const [products, setProducts] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [movements, setMovements] = useState([]);
   
   // Data state
   const [products, setProducts] = useState([]);
@@ -2336,12 +2349,9 @@ function App() {
     return <Onboarding onComplete={handleOnboardingComplete} initialData={prevOnboarding} />;
   }
   
-  return (
-    <div className="app-container">
-      <ConnectionModal show={showConnectionModal} />
-      <Toast toasts={toasts} removeToast={removeToast} />
-      
-      {/* Header */}
+return (
+  <div className="app-container">
+    <Toast toasts={toasts} removeToast={removeToast} />      {/* Header */}
       <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '12px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
