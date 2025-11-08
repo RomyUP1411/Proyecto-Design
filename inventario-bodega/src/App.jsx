@@ -1274,11 +1274,10 @@ function ConnectionModal({ show }) {
 
 // Main App component
 function App() {
-  // Agregar estado para modal
+  // Estado para el modal de conexión
   const [showConnectionModal, setShowConnectionModal] = useState(true);
-  // ...existing state...
   const [db, setDb] = useState(null);
-  const [settings, setSettings] = useState(null);
+  const [settings, setSettings] = useState(null); 
   const [prevOnboarding, setPrevOnboarding] = useState(null); // nuevo: para reconfigurar sin borrar datos
   const [activeView, setActiveView] = useState('dashboard');
   
@@ -1491,9 +1490,13 @@ function App() {
     addToast('info', 'Reconfigurar', 'La configuración actual se cargará para edición (no se eliminarán datos).');
   };
 
-  // Cuando se conecta el dispositivo, mostrar mensaje en el feed de eventos
+  // Cuando se conecta el dispositivo, mostrar mensaje en el feed de eventos y ocultar el modal
   useEffect(() => {
     if (connected && selectedDevice) {
+      // Ocultar el modal de conexión
+      setShowConnectionModal(false);
+      
+      // Agregar evento al feed
       setEvents(prev => [{
         id: Date.now(),
         type: 'system',
@@ -2217,7 +2220,7 @@ function App() {
               device={selectedDevice}
               simSinceReset={simSinceReset}
               setSimSinceReset={setSimSinceReset}
-              batches={batches} {/* Agregar batches aquí */}
+              batches={batches}
             />
             
             {/* Right Panel - Event Feed */}
