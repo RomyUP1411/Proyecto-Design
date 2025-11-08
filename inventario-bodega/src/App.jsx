@@ -1362,6 +1362,94 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
   );
 }
 
+// Sales Table component
+function SalesTable({ sales, products, settings, onUndoSale }) {
+  const [search, setSearch] = useState('');
+
+  const filtered = (sales || [])
+    .filter(s => s && s.status !== 'cancelled')
+    .filter(s => {
+      if (!search) return true;
+      const prod = products.find(p => p.sku === s.sku) || {};
+      const haystack = [s.sku, prod.name, s.product_name]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(search.toLowerCase());
+    })
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <input
+          className="form-control"
+          placeholder="Buscar por SKU o nombre"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ maxWidth: 360 }}
+        />
+        <span className="status status--info">{filtered.length} ventas</span>
+      </div>
+
+      <div className="table-container" style={{
+        border: '1px solid var(--color-border)',
+        borderRadius: 8,
+        overflow: 'auto',
+        maxHeight: 600,
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+      }}>
+        <table className="inventory-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+          <thead style={{ position: 'sticky', top: 0, background: 'var(--color-surface)', zIndex: 1 }}>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '8px 12px' }}>Fecha</th>
+              <th style={{ textAlign: 'left', padding: '8px 12px' }}>SKU</th>
+              <th style={{ textAlign: 'left', padding: '8px 12px' }}>Producto</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px' }}>Cantidad</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px' }}>Precio</th>
+              <th style={{ textAlign: 'right', padding: '8px 12px' }}>Total</th>
+              <th style={{ textAlign: 'left', padding: '8px 12px' }}>Operador</th>
+              <th style={{ textAlign: 'left', padding: '8px 12px' }}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan="8" style={{ padding: 24, textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                  No hay ventas para mostrar
+                </td>
+              </tr>
+            ) : (
+              filtered.map(sale => {
+                const prod = products.find(p => p.sku === sale.sku) || {};
+                return (
+                  <tr key={sale.id}>
+                    <td style={{ padding: '8px 12px' }}>{formatDateTime(sale.timestamp)}</td>
+                    <td style={{ padding: '8px 12px' }}>{sale.sku}</td>
+                    <td style={{ padding: '8px 12px' }}>{sale.product_name || prod.name || '-'}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>{sale.quantity}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>{(settings?.currency || 'S/') + (Number(sale.sale_price || 0).toFixed(2))}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>{(settings?.currency || 'S/') + (Number(sale.total || (sale.quantity * sale.sale_price || 0)).toFixed(2))}</td>
+                    <td style={{ padding: '8px 12px' }}>{sale.operator || '-'}</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <button
+                        className="btn btn--outline btn--sm"
+                        onClick={() => onUndoSale({ id: sale.id, sku: sale.sku, name: sale.product_name || prod.name || sale.sku, quantity: sale.quantity, device_id: sale.device_id, sale_id: sale.id })}
+                      >
+                        ↩️ Deshacer venta
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // Connection modal component
 function ConnectionModal({ show }) {
   if (!show) return null;
@@ -1411,6 +1499,8 @@ function App() {
   const [products, setProducts] = useState([]);
   const [batches, setBatches] = useState([]);
   const [movements, setMovements] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [returns, setReturns] = useState([]);
   const [events, setEvents] = useState([]);
   
   // UI state
@@ -1473,15 +1563,19 @@ function App() {
     if (!database) return;
     
     try {
-      const [productsData, batchesData, movementsData] = await Promise.all([
+      const [productsData, batchesData, movementsData, salesData, returnsData] = await Promise.all([
         database.getAll('products'),
         database.getAll('batches'),
-        database.getAll('movements')
+        database.getAll('movements'),
+        database.getAll('sales').catch(() => []),
+        database.getAll('returns').catch(() => [])
       ]);
       
       setProducts(productsData);
       setBatches(batchesData);
       setMovements(movementsData);
+      setSales(salesData || []);
+      setReturns(returnsData || []);
     } catch (error) {
       console.error('Error loading data:', error);
       addToast('error', 'Error', 'No se pudieron cargar los datos');
@@ -1848,6 +1942,8 @@ function App() {
         });
         
         await tx.done;
+        // Guardar el id de la venta en el objeto de movimiento para que el Feed pueda deshacerla
+        movement.sale_id = sale;
         addToast('success', 'Venta registrada',
           `${movement.quantity} unidades de ${movement.name} vendidas`);
         
@@ -1915,7 +2011,9 @@ function App() {
         id: Date.now(),
         ...movement,
         type: eventType,
-        timestamp: nowISO()
+        timestamp: nowISO(),
+        // Si fue venta, incluir el ID de venta para permitir deshacer
+        ...(eventType === 'venta' ? { sale_id: movement.sale_id || undefined } : {})
       }, ...prev.slice(0, 19)]);
       
       // Refresh data
@@ -1935,7 +2033,8 @@ function App() {
       
       // Verificar que la venta existe y no está anulada
       const salesStore = tx.objectStore('sales');
-      const sale = await salesStore.get(saleEvent.id);
+      const lookupId = saleEvent?.sale_id || saleEvent?.id;
+      const sale = await salesStore.get(lookupId);
       
       if (!sale || sale.status === 'cancelled') {
         addToast('error', 'Error', 'No se encontró la venta o ya fue anulada');
@@ -2424,6 +2523,12 @@ function App() {
         >
           📦 Inventario
         </button>
+        <button 
+          className={`main-tab ${activeView === 'sales' ? 'main-tab--active' : ''}`}
+          onClick={() => setActiveView('sales')}
+        >
+          💰 Ventas
+        </button>
       </div>
       
       {/* Main Content */}
@@ -2500,6 +2605,14 @@ function App() {
             onDailyReport={handleDailyReport}
             onAddProduct={handleAddProduct}
             onReturn={handleReturn}
+          />
+        )}
+        {activeView === 'sales' && (
+          <SalesTable
+            sales={sales}
+            products={products}
+            settings={settings}
+            onUndoSale={handleUndoSale}
           />
         )}
       </div>
