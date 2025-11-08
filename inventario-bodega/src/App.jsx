@@ -19,9 +19,11 @@ const DEFAULT_COLUMNS = [
   { key: 'sale_price', label: 'Precio Venta', required: false }
 ];
 
-// Reemplazar la lista de dispositivos por UNO solo (simplificación)
+// Restaurar 3 pulseras
 const SIMULATED_DEVICES = [
-  { id: 'PUL-001', name: 'Pulsera-Principal', rssi: -50, operator: '' }
+  { id: 'PUL-001', name: 'Pulsera-001', rssi: -50, operator: '' },
+  { id: 'PUL-002', name: 'Pulsera-002', rssi: -60, operator: '' },
+  { id: 'PUL-003', name: 'Pulsera-003', rssi: -70, operator: '' }
 ];
 
 const SAMPLE_PRODUCTS = [
@@ -285,7 +287,7 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
 }
 
 // Simulate Panel component
-function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device }) {
+function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
   const [activeTab, setActiveTab] = useState('form');
   const [jsonInput, setJsonInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -417,16 +419,19 @@ function SimulatePanel({ connected, onProcessEvent, settings, simSinceReset, set
     // Simular delay de escaneo
     setTimeout(() => {
       const randomProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
-      // Primero verificamos el stock total por producto
+      
+      // Verificar stock usando batches recibido como prop
       const stockByProduct = {};
-      batches.forEach(batch => {
-        if (!batch.lot?.startsWith('DEV-') && !batch.lot?.startsWith('UNDO-')) {
-          if (!stockByProduct[batch.product_sku]) {
-            stockByProduct[batch.product_sku] = 0;
+      if (batches) {
+        batches.forEach(batch => {
+          if (!batch.lot?.startsWith('DEV-') && !batch.lot?.startsWith('UNDO-')) {
+            if (!stockByProduct[batch.product_sku]) {
+              stockByProduct[batch.product_sku] = 0;
+            }
+            stockByProduct[batch.product_sku] += (batch.quantity || 0);
           }
-          stockByProduct[batch.product_sku] += (batch.quantity || 0);
-        }
-      });
+        });
+      }
 
       // Determinar el tipo de evento
       let randomEvent;
@@ -1238,8 +1243,39 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
   );
 }
 
+// Connection modal component
+function ConnectionModal({ show }) {
+  if (!show) return null;
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9999
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '20px',
+        borderRadius: '8px',
+        textAlign: 'center'
+      }}>
+        <div style={{ fontSize: '24px', marginBottom: '16px' }}>📡</div>
+        <div>Conectando a sensor de ventas...</div>
+      </div>
+    </div>
+  );
+}
+
 // Main App component
 function App() {
+  // Agregar estado para modal
+  const [showConnectionModal, setShowConnectionModal] = useState(true);
   // ...existing state...
   const [db, setDb] = useState(null);
   const [settings, setSettings] = useState(null);
@@ -2099,6 +2135,7 @@ function App() {
   
   return (
     <div className="app-container">
+      <ConnectionModal show={showConnectionModal} />
       <Toast toasts={toasts} removeToast={removeToast} />
       
       {/* Header */}
@@ -2180,6 +2217,7 @@ function App() {
               device={selectedDevice}
               simSinceReset={simSinceReset}
               setSimSinceReset={setSimSinceReset}
+              batches={batches} {/* Agregar batches aquí */}
             />
             
             {/* Right Panel - Event Feed */}
