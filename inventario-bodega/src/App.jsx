@@ -538,8 +538,9 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
         randomEvent = 'ingreso';
         setSimSinceReset(prev => prev + 1);
       } else {
-        // Después de la semilla inicial, alternar entre ingreso y devolución (venta solo bajo demanda)
-        randomEvent = Math.random() < 0.85 ? 'ingreso' : 'devolucion';
+        // Después de la semilla inicial, seguimos generando ingresos por defecto.
+        // Las ventas/devoluciones se simulan solo cuando el usuario lo pide.
+        randomEvent = 'ingreso';
       }
     }
 
@@ -936,7 +937,8 @@ function AddProductForm({ onAdd }) {
 function InventoryTable({ batches, products, movements, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){
   const [searchTerm, setSearchTerm] = useState('');
   // sectionMode controla la sección principal: 'ventas' o 'inventario'
-  const [sectionMode, setSectionMode] = useState('inventario');
+  // Mostrar solo inventario en esta tabla; Ventas tiene su vista dedicada
+  const sectionMode = 'inventario';
   const [viewMode, setViewMode] = useState('ingresos'); // Valores posibles:
   // Inventario: 'ingresos', 'devoluciones_compra', 'stock'
   // Ventas: 'registro_ventas', 'devoluciones_venta', 'historial'
@@ -1160,23 +1162,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
         </div>
       </div>
 
-      {/* Vista simplificada: SOLO DOS botones para alternar */}
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
-            className={`btn ${sectionMode === 'inventario' ? 'btn--primary' : 'btn--outline'}`}
-            onClick={() => setSectionMode('inventario')}
-          >
-            📦 Mostrar Inventario
-          </button>
-          <button 
-            className={`btn ${sectionMode === 'ventas' ? 'btn--primary' : 'btn--outline'}`}
-            onClick={() => setSectionMode('ventas')}
-          >
-            💰 Mostrar Ventas
-          </button>
-        </div>
-      </div>
+      {/* La tabla de inventario solo muestra inventario; ventas tiene su propia vista */}
 
       {/* Table */}
       <div className="table-container" style={{ 
