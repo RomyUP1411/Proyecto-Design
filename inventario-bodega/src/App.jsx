@@ -795,21 +795,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
             🏷️ Simular 1 Venta
           </button>
 
-          <button
-            className="btn btn--outline btn--full-width btn--lg"
-            onClick={async () => {
-              // Simular 5 devoluciones de ventas rápidas (forzar tipo 'devolucion')
-              for (let i = 0; i < 5; i++) {
-                if (!connected) break;
-                await new Promise(r => setTimeout(r, 800));
-                await handleSimulateScan('devolucion');
-              }
-            }}
-            disabled={!connected || isScanning}
-            style={{ marginBottom: '12px' }}
-          >
-            ↩️ Simular 5 Devoluciones Rápidas
-          </button>
+          {/* Botón de devoluciones automáticas removido por solicitud */}
           
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
@@ -940,6 +926,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
 
   const [sortField, setSortField] = useState('sku');
   const [sortDir, setSortDir] = useState('asc');
+  const [selectedSKU, setSelectedSKU] = useState(null);
   
   const visibleColumns = DEFAULT_COLUMNS.filter(col => 
     settings?.columns?.includes(col.key) || col.required
@@ -1053,6 +1040,23 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
     const profitPerUnit = sale - purchase;
     return sum + (profitPerUnit * qty);
   }, 0);
+
+  // Resumen por producto (inventario actual)
+  const productSummary = (() => {
+    const map = {};
+    batches.forEach(b => {
+      const lot = String(b.lot || '');
+      if (b.quantity > 0 && !lot.startsWith('DEV-') && !lot.startsWith('UNDO-')) {
+        if (!map[b.product_sku]) {
+          const p = products.find(pp => pp.sku === b.product_sku) || {};
+          map[b.product_sku] = { sku: b.product_sku, name: p.name || b.product_sku, category: p.category || '-', totalQty: 0, totalValue: 0 };
+        }
+        map[b.product_sku].totalQty += (b.quantity || 0);
+        map[b.product_sku].totalValue += (b.quantity || 0) * (b.purchase_price || 0);
+      }
+    });
+    return Object.values(map).sort((a, b) => b.totalQty - a.totalQty);
+  })();
   
   return (
     <div>
