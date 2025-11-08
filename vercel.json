@@ -1,7 +1,7 @@
 {
   "framework": "vite",
-  "buildCommand": "cd inventario-bodega && npm ci && npm run build",
-  "outputDirectory": "inventario-bodega/dist",
+  "buildCommand": "if [ -f package.json ]; then npm ci || npm install; npm run build; elif [ -d inventario-bodega ]; then cd inventario-bodega && (npm ci || npm install) && npm run build && cd .. && rm -rf dist && cp -R inventario-bodega/dist dist; else echo 'No package.json found' && exit 1; fi",
+  "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
