@@ -483,124 +483,107 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
     }));
   };
   
-  const handleSimulateScan = async () => {
+  const handleSimulateScan = async (forceType) => {
+    // Nueva versión: acepta un tipo forzado (venta, ingreso, devolucion)
     if (!connected) {
       alert('⚠️ Debes conectar un dispositivo primero');
       return;
     }
-    
+
     setIsScanning(true);
     setScanCount(prev => prev + 1);
-    
-    // Simular delay de escaneo
-    setTimeout(() => {
-      const randomProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
-      
-      // Verificar stock usando batches recibido como prop
-      const stockByProduct = {};
-      if (batches) {
-        batches.forEach(batch => {
-          if (!batch.lot?.startsWith('DEV-') && !batch.lot?.startsWith('UNDO-')) {
-            if (!stockByProduct[batch.product_sku]) {
-              stockByProduct[batch.product_sku] = 0;
-            }
-            stockByProduct[batch.product_sku] += (batch.quantity || 0);
-          }
-        });
-      }
 
-      // Determinar el tipo de evento
-      let randomEvent;
+    await new Promise(res => setTimeout(res, 800));
+
+    const randomProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
+
+    // Verificar stock usando batches recibido como prop
+    const stockByProduct = {};
+    if (batches) {
+      batches.forEach(batch => {
+        if (!batch.lot?.startsWith('DEV-') && !batch.lot?.startsWith('UNDO-')) {
+          if (!stockByProduct[batch.product_sku]) {
+            stockByProduct[batch.product_sku] = 0;
+          }
+          stockByProduct[batch.product_sku] += (batch.quantity || 0);
+        }
+      });
+    }
+
+    // Determinar el tipo de evento: para la simulación estándar usamos solo 'ingreso' o 'devolucion'
+    let randomEvent;
+    if (forceType) {
+      randomEvent = forceType;
+    }
+    if (typeof simSinceReset === 'number' && simSinceReset < 10) {
+      // Primeros 10 eventos -> ingresos con productos no usados
+  const unusedProducts = SAMPLE_PRODUCTS.filter(p => !(batches || []).some(b => b.product_sku === p.sku));
+      if (unusedProducts.length > 0) {
+        selectedProduct = unusedProducts[0];
+      }
+      randomEvent = 'ingreso';
+      setSimSinceReset(prev => prev + 1);
+    } else {
+      // Después de la semilla inicial, alternar entre ingreso y devolucion
+      randomEvent = Math.random() < 0.85 ? 'ingreso' : 'devolucion';
+    }
+
+    // Para devoluciones elegimos un producto con ventas/stock previo si existe
+    let selectedProduct = randomProduct;
+    if (randomEvent === 'devolucion') {
+      // Preferir productos que tengan movimientos o lotes devueltos
+      const candidate = SAMPLE_PRODUCTS.find(p => (stockByProduct[p.sku] || 0) > 0);
+      if (candidate) selectedProduct = candidate;
+    }
+
+    // Generar cantidades lógicas
+    let quantity;
+    if (randomEvent === 'ingreso') {
       if (typeof simSinceReset === 'number' && simSinceReset < 10) {
-          // Para los primeros 10 eventos, asegurar que sean diferentes productos
-          const unusedProducts = SAMPLE_PRODUCTS.filter(p => 
-            !batches.some(b => b.product_sku === p.sku)
-          );
-          if (unusedProducts.length > 0) {
-            selectedProduct = unusedProducts[0];
-          }
-        randomEvent = 'ingreso';
-        setSimSinceReset(prev => prev + 1);
+        quantity = Math.floor(Math.random() * 91) + 30; // 30-120
       } else {
-        // Después de 10 ingresos, simular ventas o ingresos
-        // Si no hay stock suficiente de ningún producto, forzar ingreso
-        const hasStock = Object.values(stockByProduct).some(stock => stock >= 5);
-        if (!hasStock) {
-          randomEvent = 'ingreso';
-        } else {
-          // 60% probabilidad de venta, 40% de ingreso si hay stock
-          randomEvent = Math.random() < 0.6 ? 'venta' : 'ingreso';
-        }
+        quantity = Math.floor(Math.random() * 41) + 10; // 10-50
       }
+    } else {
+      // devolucion: 1-5 unidades
+      quantity = Math.floor(Math.random() * 5) + 1;
+    }
 
-      // Para ventas, elegir solo productos con stock suficiente
-      let selectedProduct = randomProduct;
-      if (randomEvent === 'venta') {
-        const availableProducts = SAMPLE_PRODUCTS.filter(p => 
-          stockByProduct[p.sku] && stockByProduct[p.sku] >= 5
-        );
-        if (availableProducts.length > 0) {
-          selectedProduct = availableProducts[Math.floor(Math.random() * availableProducts.length)];
-        } else {
-          // Si no hay productos con stock suficiente, cambiar a ingreso
-          randomEvent = 'ingreso';
-          selectedProduct = SAMPLE_PRODUCTS[Math.floor(Math.random() * SAMPLE_PRODUCTS.length)];
-        }
+    // Precios basados en el producto
+    const basePrice = selectedProduct.basePrice || parseFloat((Math.random() * 15 + 5).toFixed(2));
+    const purchase_price = randomEvent === 'ingreso' ? basePrice : basePrice * 0.75;
+    const sale_price = parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2));
+
+    const simulatedPayload = {
+      event: randomEvent,
+      source: 'brazalete_simulado',
+      device_id: device?.id || 'BRZ-001',
+      timestamp: nowISO(),
+      barcode: `750${Math.floor(Math.random() * 1000000000)}`,
+      sku: selectedProduct.sku,
+      name: selectedProduct.name,
+      quantity: quantity,
+      purchase_price: purchase_price,
+      sale_price: sale_price,
+      lot: `L${new Date().getFullYear()}${String(Math.floor(Math.random() * 99) + 1).padStart(2, '0')}`,
+      expiry: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      category: selectedProduct.category,
+      bodega: settings?.bodega || 'Bodega Central',
+      operator: device?.operator || settings?.user || 'Juan'
+    };
+
+    // Procesar evento (onProcessEvent viene de props)
+    if (typeof onProcessEvent === 'function') {
+      try {
+        await onProcessEvent(simulatedPayload);
+      } catch (e) {
+        console.error('simulate error', e);
       }
+    } else {
+      console.warn('onProcessEvent no es una función');
+    }
 
-      // Generar cantidades lógicas
-      let quantity;
-      if (randomEvent === 'ingreso') {
-          // Para ingresos iniciales (primeros 10), cantidades más grandes
-          if (typeof simSinceReset === 'number' && simSinceReset < 10) {
-            quantity = Math.floor(Math.random() * 91) + 30; // 30-120 unidades
-          } else {
-            quantity = Math.floor(Math.random() * 41) + 10; // 10-50 unidades
-          }
-      } else {
-        // Ventas: entre 1 y 5 unidades, sin exceder el stock
-        const maxVenta = Math.min(5, stockByProduct[selectedProduct.sku] || 0);
-        quantity = Math.floor(Math.random() * maxVenta) + 1;
-      }
-
-      // Generar precios lógicos basados en el tipo de evento
-        const basePrice = selectedProduct.basePrice || parseFloat((Math.random() * 15 + 5).toFixed(2));
-      const purchase_price = randomEvent === 'ingreso' ? basePrice : 0;
-      const sale_price = randomEvent === 'ingreso' ? 
-        parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2)) : // 30-70% margen
-        parseFloat((basePrice * 1.5).toFixed(2)); // Precio venta para transacciones de venta
-      
-      // Para ventas, asegurarnos de usar el precio de venta como precio principal
-      const price = randomEvent === 'venta' ? sale_price : purchase_price;
-
-      const simulatedPayload = {
-        event: randomEvent,
-        source: 'brazalete_simulado',
-        device_id: device?.id || 'BRZ-001',
-        timestamp: nowISO(),
-        barcode: `750${Math.floor(Math.random() * 1000000000)}`,
-        sku: selectedProduct.sku,
-        name: selectedProduct.name,
-        quantity: quantity,
-        price: price, // Precio principal basado en el tipo de evento
-        purchase_price: purchase_price,
-        sale_price: sale_price,
-        lot: `L${new Date().getFullYear()}${String(Math.floor(Math.random() * 99) + 1).padStart(2, '0')}`,
-        expiry: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        category: selectedProduct.category,
-        bodega: settings?.bodega || 'Bodega Central',
-        operator: device?.operator || settings?.user || 'Juan'
-      };
-      
-      // If forced ingreso for seed, compute purchase as 75% of sale
-      if (randomEvent === 'ingreso' && typeof simSinceReset === 'number' && simSinceReset <= 10) {
-        simulatedPayload.sale_price = simulatedPayload.sale_price || parseFloat((Math.random() * 15 + 2).toFixed(2));
-        simulatedPayload.purchase_price = parseFloat((simulatedPayload.sale_price * 0.75).toFixed(2));
-      }
-
-      onProcessEvent(simulatedPayload);
-      setIsScanning(false);
-    }, 1500);
+    setIsScanning(false);
   };
   
   return (
@@ -769,28 +752,39 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
           >
             {isScanning ? '⏳ Escaneando...' : '🔍 Simular Scan'}
           </button>
-      
-            <button 
-              className="btn btn--secondary btn--full-width btn--lg"
-              onClick={async () => {
-                if (!connected || !salesSensorConnected) {
-                  addToast('error', 'Error', 'Se requiere que tanto la pulsera como el sensor de ventas estén conectados');
-                  return;
-                }
           
-                setIsScanning(true);
-                // Simular 5 ventas rápidas
-                for (let i = 0; i < 5; i++) {
-                  await new Promise(resolve => setTimeout(resolve, 1000));
-                  handleSimulateScan();
-                }
-                setIsScanning(false);
-              }}
-              disabled={!connected || isScanning}
-              style={{ marginBottom: '12px' }}
-            >
-              🏃‍♂️ Simular 5 Ventas Rápidas
-            </button>
+          <button
+            className="btn btn--secondary btn--full-width btn--lg"
+            onClick={async () => {
+              // Simular 5 ventas rápidas (forzar tipo 'venta')
+              for (let i = 0; i < 5; i++) {
+                if (!connected || !salesSensorConnected) break;
+                await new Promise(r => setTimeout(r, 800));
+                // Forzamos una venta
+                await handleSimulateScan('venta');
+              }
+            }}
+            disabled={!connected || isScanning || !salesSensorConnected}
+            style={{ marginBottom: '12px' }}
+          >
+            🏷️ Simular 5 Ventas Rápidas
+          </button>
+
+          <button
+            className="btn btn--outline btn--full-width btn--lg"
+            onClick={async () => {
+              // Simular 5 devoluciones de ventas rápidas (forzar tipo 'devolucion')
+              for (let i = 0; i < 5; i++) {
+                if (!connected) break;
+                await new Promise(r => setTimeout(r, 800));
+                await handleSimulateScan('devolucion');
+              }
+            }}
+            disabled={!connected || isScanning}
+            style={{ marginBottom: '12px' }}
+          >
+            ↩️ Simular 5 Devoluciones Rápidas
+          </button>
           
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
