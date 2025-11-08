@@ -1161,6 +1161,97 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
         </div>
       </div>
 
+      {/* Resumen por Producto (KPI) */}
+      <div style={{ marginBottom: '16px', padding: '12px', background: 'var(--color-bg-1)', borderRadius: '8px' }}>
+        <h4 style={{ marginTop: 0, marginBottom: '8px' }}>📦 Resumen por Producto</h4>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>
+          <div className="stat-card">
+            <div className="stat-value">{productSummary.length}</div>
+            <div className="stat-label">SKUs con stock</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-value">{totalItems}</div>
+            <div className="stat-label">Unidades en stock</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-value">{(settings?.currency || 'S/')}{totalValue.toFixed(2)}</div>
+            <div className="stat-label">Valor total</div>
+          </div>
+        </div>
+
+        {productSummary.length === 0 ? (
+          <div style={{ color: 'var(--color-text-secondary)' }}>No hay stock cargado todavía</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px' }}>
+            {productSummary.map(card => (
+              <button key={card.sku} className={`btn ${selectedSKU === card.sku ? 'btn--primary' : 'btn--outline'}`} onClick={() => setSelectedSKU(card.sku)} style={{ justifyContent: 'space-between' }}>
+                <span style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 600 }}>{card.name}</div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>{card.sku} · {card.category}</div>
+                </span>
+                <span style={{ fontWeight: 700 }}>{card.totalQty}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {selectedSKU && (
+          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--color-border)' }}>
+            {(() => {
+              const p = products.find(pp => pp.sku === selectedSKU) || { name: selectedSKU };
+              const selBatches = batches.filter(b => b.product_sku === selectedSKU && b.quantity > 0 && !String(b.lot || '').startsWith('DEV-') && !String(b.lot || '').startsWith('UNDO-'));
+              const totalSel = selBatches.reduce((s, b) => s + (b.quantity || 0), 0);
+              const valueSel = selBatches.reduce((s, b) => s + (b.quantity || 0) * (b.purchase_price || 0), 0);
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <h5 style={{ margin: 0 }}>{p.name} ({selectedSKU})</h5>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>Categoría: {p.category || '-'}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', margin: '8px 0' }}>
+                    <div className="stat-card"><div className="stat-value">{totalSel}</div><div className="stat-label">Unidades</div></div>
+                    <div className="stat-card"><div className="stat-value">{(settings?.currency || 'S/')}{valueSel.toFixed(2)}</div><div className="stat-label">Valor</div></div>
+                  </div>
+                  <div className="table-container" style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'auto', maxHeight: 320 }}>
+                    <table className="inventory-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+                      <thead style={{ position: 'sticky', top: 0, background: 'var(--color-surface)' }}>
+                        <tr>
+                          <th style={{ textAlign: 'left', padding: '8px 12px' }}>Lote</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px' }}>Caducidad</th>
+                          <th style={{ textAlign: 'left', padding: '8px 12px' }}>Estado</th>
+                          <th style={{ textAlign: 'right', padding: '8px 12px' }}>Cantidad</th>
+                          <th style={{ textAlign: 'right', padding: '8px 12px' }}>Precio Compra</th>
+                          <th style={{ textAlign: 'right', padding: '8px 12px' }}>Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selBatches.map(b => {
+                          const status = checkExpiry(b.expiry);
+                          const color = status === 'expired' ? 'red' : status === 'expiring-soon' ? '#b58900' : 'inherit';
+                          return (
+                            <tr key={b.id}>
+                              <td style={{ padding: '8px 12px' }}>{b.lot || '-'}</td>
+                              <td style={{ padding: '8px 12px' }}>{b.expiry ? formatDate(b.expiry) : '-'}</td>
+                              <td style={{ padding: '8px 12px', color }}>{status === 'expired' ? 'Vencido' : status === 'expiring-soon' ? 'Por vencer' : 'Normal'}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>{b.quantity || 0}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>{(settings?.currency || 'S/')}{(b.purchase_price || 0).toFixed(2)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}>{(settings?.currency || 'S/')}{(((b.quantity || 0) * (b.purchase_price || 0))).toFixed(2)}</td>
+                            </tr>
+                          );
+                        })}
+                        {selBatches.length === 0 && (
+                          <tr><td colSpan="6" style={{ padding: 16, textAlign: 'center', color: 'var(--color-text-secondary)' }}>Sin lotes activos</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+
       {/* La tabla de inventario solo muestra inventario; ventas tiene su propia vista */}
 
       {/* Table */}
