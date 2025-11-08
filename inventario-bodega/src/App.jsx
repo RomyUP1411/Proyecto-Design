@@ -113,19 +113,37 @@ async function initDB(){
 
 // Simple Toast component
 function Toast({ toasts, removeToast }){
+  // Mantener timers por toast en un ref para que nuevos toasts no cancelen timers existentes
+  const timeoutsRef = useRef({});
+
   useEffect(() => {
-    const timeouts = toasts.map(toast => {
-      if (toast.autoHide !== false) {
-          // Establecer diferentes tiempos según el tipo
-          const timeout = toast.type === 'success' ? 3000 : 
-                         toast.type === 'error' ? 5000 : 4000;
-          return setTimeout(() => removeToast(toast.id), timeout);
-      }
-      return null;
+    // Crear timers para toasts nuevos
+    toasts.forEach(toast => {
+      if (toast.autoHide === false) return;
+      if (timeoutsRef.current[toast.id]) return; // ya tiene timer
+
+      const timeoutMs = toast.type === 'success' ? 3000 : toast.type === 'error' ? 5000 : 4000;
+      const t = setTimeout(() => {
+        try { removeToast(toast.id); } catch (e) { /* ignore */ }
+        delete timeoutsRef.current[toast.id];
+      }, timeoutMs);
+
+      timeoutsRef.current[toast.id] = t;
     });
-    
+
+    // Limpiar timers de toasts que ya no existen
+    const currentIds = new Set(toasts.map(t => t.id));
+    Object.keys(timeoutsRef.current).forEach(id => {
+      if (!currentIds.has(Number(id))) {
+        clearTimeout(timeoutsRef.current[id]);
+        delete timeoutsRef.current[id];
+      }
+    });
+
+    // On unmount limpiar todo
     return () => {
-      timeouts.forEach(t => t && clearTimeout(t));
+      Object.values(timeoutsRef.current).forEach(t => clearTimeout(t));
+      timeoutsRef.current = {};
     };
   }, [toasts, removeToast]);
 
@@ -2503,18 +2521,27 @@ function App() {
           if (!operatorStats[mov.operator]) {
             operatorStats[mov.operator] = {
               device: mov.device_id,
-              ventas: 0,
-              compras: 0,
-              devoluciones: 0
+              ventas: 0,        // total unidades vendidas
+              compras: 0,       // número de eventos de ingreso (conteo)
+              devoluciones: 0   // número de eventos de devolución (conteo)
             };
           }
 
-          if (mov.type === 'venta') {
-            operatorStats[mov.operator].ventas += mov.quantity;
-          } else if (mov.type === 'ingreso') {
-            operatorStats[mov.operator].compras += mov.quantity;
-          } else if (mov.type === 'devolucion') {
-            operatorStats[mov.operator].devoluciones += mov.quantity;
+          // Normalizar tipo lógico: algunos movimientos almacenan 'ingreso_inventario', 'devolucion_venta', etc.
+          const mt = String(mov.type || '').toLowerCase();
+          if (mt.includes('venta')) {
+            // ventas: sumar unidades vendidas
+            operatorStats[mov.operator].ventas += (mov.quantity || 0);
+          }
+
+          if (mt.includes('ingreso')) {
+            // compras: contar eventos de ingreso (veces que hubo ingreso de inventario)
+            operatorStats[mov.operator].compras += 1;
+          }
+
+          if (mt.includes('devolucion')) {
+            // devoluciones: contar eventos de devolución (no sumar unidades)
+            operatorStats[mov.operator].devoluciones += 1;
           }
         });
 
