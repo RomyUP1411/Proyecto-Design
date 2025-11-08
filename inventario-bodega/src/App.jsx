@@ -547,12 +547,15 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
         quantity = Math.floor(Math.random() * maxVenta) + 1;
       }
 
-      // Generar precios lógicos
+      // Generar precios lógicos basados en el tipo de evento
       const basePrice = parseFloat((Math.random() * 15 + 5).toFixed(2)); // Precio base entre 5 y 20
       const purchase_price = randomEvent === 'ingreso' ? basePrice : 0;
       const sale_price = randomEvent === 'ingreso' ? 
         parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2)) : // 30-70% margen
         parseFloat((basePrice * 1.5).toFixed(2)); // Precio venta para transacciones de venta
+      
+      // Para ventas, asegurarnos de usar el precio de venta como precio principal
+      const price = randomEvent === 'venta' ? sale_price : purchase_price;
 
       const simulatedPayload = {
         event: randomEvent,
@@ -563,6 +566,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
         sku: selectedProduct.sku,
         name: selectedProduct.name,
         quantity: quantity,
+        price: price, // Precio principal basado en el tipo de evento
         purchase_price: purchase_price,
         sale_price: sale_price,
         lot: `L${new Date().getFullYear()}${String(Math.floor(Math.random() * 99) + 1).padStart(2, '0')}`,
@@ -1703,7 +1707,17 @@ function App() {
           return;
         }
 
-        // Transacción de venta 
+        // Buscar el producto para obtener el precio de venta correcto
+        const product = await db.get('products', movement.sku);
+        if (!product) {
+          addToast('error', 'Error', 'Producto no encontrado en la base de datos');
+          return;
+        }
+
+        // Usar el precio de venta del producto
+        movement.price = product.default_sale_price || movement.price;
+
+        // Transacción de venta incluyendo la tabla de ventas
         const tx = db.transaction(['sales', 'batches', 'movements'], 'readwrite');
         
         // Verificar stock
@@ -1748,20 +1762,32 @@ function App() {
           await batchStore.put(batch);
         }
         
-        // Registrar venta
-        const sale = await tx.objectStore('sales').add({
-          ...movement,
-          batches_used: batchesUsed,
+        // Registrar venta con más detalles
+        const saleData = {
+          id: `SALE-${Date.now()}`,
+          timestamp: movement.timestamp,
+          sku: movement.sku,
+          product_name: movement.name,
+          quantity: movement.quantity,
+          sale_price: movement.price,
           total: movement.quantity * movement.price,
-          status: 'completed'
-        });
+          operator: movement.operator,
+          device_id: movement.device_id,
+          status: 'completed',
+          batches_used: batchesUsed,
+          bodega: movement.bodega,
+          lot: `SALE-${Date.now()}`,
+          type: 'venta'
+        };
+
+        const sale = await tx.objectStore('sales').add(saleData);
         
         // Registrar movimiento
         await tx.objectStore('movements').add({
           ...movement,
-          type: 'venta',
           sale_id: sale,
-          batches_used: batchesUsed
+          batches_used: batchesUsed,
+          type: 'venta'
         });
         
         await tx.done;
