@@ -2061,18 +2061,17 @@ function App() {
           `${movement.quantity} unidades de ${movement.name} devueltas al inventario`);
       }
       
-      // Update events feed con id único y tipos específicos según la operación
-      const eventType = payload.event === 'ingreso' ? 'ingreso_inventario' :
+      // Update events feed: usar tipos simples para la UI ('ingreso', 'venta', 'devolucion')
+      const feedType = payload.event === 'ingreso' ? 'ingreso' :
                        payload.event === 'venta' ? 'venta' :
-                       'devolucion_venta';
-                       
+                       'devolucion';
+      
       setEvents(prev => [{
         id: Date.now(),
         ...movement,
-        type: eventType,
+        type: feedType,
         timestamp: nowISO(),
-        // Si fue venta, incluir el ID de venta para permitir deshacer
-        ...(eventType === 'venta' ? { sale_id: movement.sale_id || undefined } : {})
+        ...(feedType === 'venta' ? { sale_id: movement.sale_id || undefined } : {})
       }, ...prev.slice(0, 19)]);
       
       // Refresh data
