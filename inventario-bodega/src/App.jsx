@@ -525,22 +525,22 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       });
     }
 
-    // Determinar el tipo de evento: para la simulación estándar usamos solo 'ingreso' o 'devolucion'
-    let randomEvent;
-    if (forceType) {
-      randomEvent = forceType;
-    }
-    if (typeof simSinceReset === 'number' && simSinceReset < 10) {
-      // Primeros 10 eventos -> ingresos con productos no usados
-  const unusedProducts = SAMPLE_PRODUCTS.filter(p => !(batches || []).some(b => b.product_sku === p.sku));
-      if (unusedProducts.length > 0) {
-        selectedProduct = unusedProducts[0];
+    // Determinar el tipo de evento. Si se fuerza (p.ej. 'venta'), respetarlo.
+    let randomEvent = forceType || null;
+
+    if (!randomEvent) {
+      if (typeof simSinceReset === 'number' && simSinceReset < 10) {
+        // Primeros 10 eventos -> ingresos con productos no usados
+        const unusedProducts = SAMPLE_PRODUCTS.filter(p => !(batches || []).some(b => b.product_sku === p.sku));
+        if (unusedProducts.length > 0) {
+          selectedProduct = unusedProducts[0];
+        }
+        randomEvent = 'ingreso';
+        setSimSinceReset(prev => prev + 1);
+      } else {
+        // Después de la semilla inicial, alternar entre ingreso y devolución (venta solo bajo demanda)
+        randomEvent = Math.random() < 0.85 ? 'ingreso' : 'devolucion';
       }
-      randomEvent = 'ingreso';
-      setSimSinceReset(prev => prev + 1);
-    } else {
-      // Después de la semilla inicial, alternar entre ingreso y devolucion
-      randomEvent = Math.random() < 0.85 ? 'ingreso' : 'devolucion';
     }
 
     if (randomEvent === 'devolucion') {
@@ -549,7 +549,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       if (candidate) selectedProduct = candidate;
     }
 
-    // Generar cantidades lógicas
+    // Generar cantidades lógicas según el evento
     let quantity;
     if (randomEvent === 'ingreso') {
       if (typeof simSinceReset === 'number' && simSinceReset < 10) {
@@ -557,6 +557,22 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       } else {
         quantity = Math.floor(Math.random() * 41) + 10; // 10-50
       }
+    } else if (randomEvent === 'venta') {
+      // Para ventas: exigir sensor y elegir producto con stock
+      if (!salesSensorConnected) {
+        alert('⚠️ Debes conectar el sensor de ventas');
+        setIsScanning(false);
+        return;
+      }
+      const candidates = SAMPLE_PRODUCTS.filter(p => (stockByProduct[p.sku] || 0) > 0);
+      if (candidates.length === 0) {
+        alert('No hay stock disponible para vender. Primero registra ingresos.');
+        setIsScanning(false);
+        return;
+      }
+      selectedProduct = candidates[Math.floor(Math.random() * candidates.length)];
+      const maxQty = Math.max(1, stockByProduct[selectedProduct.sku] || 1);
+      quantity = Math.min(Math.floor(Math.random() * 3) + 1, maxQty); // 1-3, limitado al stock
     } else {
       // devolucion: 1-5 unidades
       quantity = Math.floor(Math.random() * 5) + 1;
