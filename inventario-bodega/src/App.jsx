@@ -573,7 +573,13 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       }
       selectedProduct = candidates[Math.floor(Math.random() * candidates.length)];
       const maxQty = Math.max(1, stockByProduct[selectedProduct.sku] || 1);
-      quantity = Math.min(Math.floor(Math.random() * 3) + 1, maxQty); // 1-3, limitado al stock
+      // Probabilidad: 85% ventas pequeñas (1-5), 15% ventas mayores (5-10)
+      const r = Math.random();
+      if (r < 0.85) {
+        quantity = Math.min(Math.floor(Math.random() * 5) + 1, maxQty); // 1-5
+      } else {
+        quantity = Math.min(Math.floor(Math.random() * 6) + 5, maxQty); // 5-10
+      }
     } else {
       // devolucion: 1-5 unidades
       quantity = Math.floor(Math.random() * 5) + 1;
@@ -776,7 +782,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
           
           <button 
             className="btn btn--primary btn--full-width btn--lg"
-            onClick={handleSimulateScan}
+            onClick={() => handleSimulateScan('ingreso')}
             disabled={!connected || isScanning}
             style={{ marginBottom: '12px' }}
           >
