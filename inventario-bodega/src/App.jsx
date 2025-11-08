@@ -26,10 +26,18 @@ const SIMULATED_DEVICES = [
   { id: 'PUL-003', name: 'Pulsera-003', rssi: -70, operator: '' }
 ];
 
+// Productos de muestra con precios y categorías
 const SAMPLE_PRODUCTS = [
-  { sku: 'GALX-001', name: 'Galletas X', category: 'Panadería' },
-  { sku: 'LECH-001', name: 'Leche Entera', category: 'Lácteos' },
-  { sku: 'PAN-001', name: 'Pan Bimbo', category: 'Panadería' }
+  { sku: 'GALX-001', name: 'Galletas X', category: 'Panadería', basePrice: 2.50 },
+  { sku: 'LECH-001', name: 'Leche Entera', category: 'Lácteos', basePrice: 3.80 },
+  { sku: 'PAN-001', name: 'Pan Bimbo', category: 'Panadería', basePrice: 4.20 },
+  { sku: 'YOGU-001', name: 'Yogurt Natural', category: 'Lácteos', basePrice: 5.50 },
+  { sku: 'CERE-001', name: 'Cereal Integral', category: 'Desayunos', basePrice: 6.90 },
+  { sku: 'CAFE-001', name: 'Café Molido', category: 'Bebidas', basePrice: 12.50 },
+  { sku: 'CHOC-001', name: 'Chocolate Tableta', category: 'Dulces', basePrice: 3.99 },
+  { sku: 'ARRO-001', name: 'Arroz Premium', category: 'Granos', basePrice: 4.75 },
+  { sku: 'ACEI-001', name: 'Aceite de Oliva', category: 'Aceites', basePrice: 15.90 },
+  { sku: 'SODA-001', name: 'Soda Light', category: 'Bebidas', basePrice: 2.30 }
 ];
 
 // Helpers
@@ -95,7 +103,10 @@ function Toast({ toasts, removeToast }){
   useEffect(() => {
     const timeouts = toasts.map(toast => {
       if (toast.autoHide !== false) {
-        return setTimeout(() => removeToast(toast.id), 3000);
+          // Establecer diferentes tiempos según el tipo
+          const timeout = toast.type === 'success' ? 3000 : 
+                         toast.type === 'error' ? 5000 : 4000;
+          return setTimeout(() => removeToast(toast.id), timeout);
       }
       return null;
     });
@@ -501,7 +512,13 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       // Determinar el tipo de evento
       let randomEvent;
       if (typeof simSinceReset === 'number' && simSinceReset < 10) {
-        // Forzar ingresos para los primeros 10 eventos
+          // Para los primeros 10 eventos, asegurar que sean diferentes productos
+          const unusedProducts = SAMPLE_PRODUCTS.filter(p => 
+            !batches.some(b => b.product_sku === p.sku)
+          );
+          if (unusedProducts.length > 0) {
+            selectedProduct = unusedProducts[0];
+          }
         randomEvent = 'ingreso';
         setSimSinceReset(prev => prev + 1);
       } else {
@@ -534,8 +551,12 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       // Generar cantidades lógicas
       let quantity;
       if (randomEvent === 'ingreso') {
-        // Ingresos: entre 10 y 50 unidades
-        quantity = Math.floor(Math.random() * 41) + 10;
+          // Para ingresos iniciales (primeros 10), cantidades más grandes
+          if (typeof simSinceReset === 'number' && simSinceReset < 10) {
+            quantity = Math.floor(Math.random() * 91) + 30; // 30-120 unidades
+          } else {
+            quantity = Math.floor(Math.random() * 41) + 10; // 10-50 unidades
+          }
       } else {
         // Ventas: entre 1 y 5 unidades, sin exceder el stock
         const maxVenta = Math.min(5, stockByProduct[selectedProduct.sku] || 0);
@@ -543,7 +564,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       }
 
       // Generar precios lógicos basados en el tipo de evento
-      const basePrice = parseFloat((Math.random() * 15 + 5).toFixed(2)); // Precio base entre 5 y 20
+        const basePrice = selectedProduct.basePrice || parseFloat((Math.random() * 15 + 5).toFixed(2));
       const purchase_price = randomEvent === 'ingreso' ? basePrice : 0;
       const sale_price = randomEvent === 'ingreso' ? 
         parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2)) : // 30-70% margen
@@ -748,6 +769,28 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
           >
             {isScanning ? '⏳ Escaneando...' : '🔍 Simular Scan'}
           </button>
+      
+            <button 
+              className="btn btn--secondary btn--full-width btn--lg"
+              onClick={async () => {
+                if (!connected || !salesSensorConnected) {
+                  addToast('error', 'Error', 'Se requiere que tanto la pulsera como el sensor de ventas estén conectados');
+                  return;
+                }
+          
+                setIsScanning(true);
+                // Simular 5 ventas rápidas
+                for (let i = 0; i < 5; i++) {
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  handleSimulateScan();
+                }
+                setIsScanning(false);
+              }}
+              disabled={!connected || isScanning}
+              style={{ marginBottom: '12px' }}
+            >
+              🏃‍♂️ Simular 5 Ventas Rápidas
+            </button>
           
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
