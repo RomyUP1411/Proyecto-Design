@@ -955,7 +955,6 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
     );
   });
   
-  });
   
   const handleSort = (field) => {
     if (sortField === field) {
