@@ -374,7 +374,7 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
 }
 
 // Simulate Panel component
-function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
+function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, addToast, settings, simSinceReset, setSimSinceReset, device, batches }) {
   const [activeTab, setActiveTab] = useState('form');
   const [jsonInput, setJsonInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -955,67 +955,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
     );
   });
   
-  // Sort batches
-  const sortedBatches = [...filteredBatches].sort((a, b) => {
-    const productA = products.find(p => p.sku === a.product_sku) || {};
-    const productB = products.find(p => p.sku === b.product_sku) || {};
-    
-    let valA, valB;
-    
-    switch (sortField) {
-      case 'sku':
-        valA = a.product_sku;
-        valB = b.product_sku;
-        break;
-      case 'name':
-        valA = productA.name || '';
-        valB = productB.name || '';
-        break;
-      case 'quantity':
-        valA = a.quantity || 0;
-        valB = b.quantity || 0;
-        break;
-      case 'expiry':
-        valA = a.expiry || '9999-12-31';
-        valB = b.expiry || '9999-12-31';
-        break;
-      default:
-        valA = a[sortField] || '';
-        valB = b[sortField] || '';
-    }
-    
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      return sortDir === 'asc' ? valA - valB : valB - valA;
-    }
-    
-    const comparison = String(valA).localeCompare(String(valB));
-    return sortDir === 'asc' ? comparison : -comparison;
   });
-
-  // If user selected 'products' view, aggregate batches per product to show one row per product
-  const perProductRows = (() => {
-    const map = {};
-    filteredBatches.forEach(b => {
-      if (!map[b.product_sku]) {
-        map[b.product_sku] = {
-          product_sku: b.product_sku,
-          quantity: 0,
-          totalValue: 0,
-          avgPurchase: 0,
-          expiry: null
-        };
-      }
-      map[b.product_sku].quantity += Number(b.quantity || 0);
-      map[b.product_sku].totalValue += (Number(b.quantity || 0) * Number(b.purchase_price || 0));
-      if (!map[b.product_sku].expiry && b.expiry) map[b.product_sku].expiry = b.expiry;
-    });
-    return Object.values(map).map(item => ({
-      product_sku: item.product_sku,
-      quantity: item.quantity,
-      purchase_price: item.quantity ? (item.totalValue / item.quantity) : 0,
-      expiry: item.expiry
-    }));
-  })();
   
   const handleSort = (field) => {
     if (sortField === field) {
@@ -2759,6 +2699,7 @@ function App() {
               connected={connected}
               salesSensorConnected={salesSensorConnected}
               onProcessEvent={handleProcessEvent}
+              addToast={addToast}
               settings={settings}
               device={selectedDevice}
               simSinceReset={simSinceReset}
