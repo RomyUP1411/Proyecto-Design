@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, {useEffect, useState, useRef} from "react";
 import { openDB } from 'idb';
+import { saveAs } from 'file-saver';
+import ExcelJS from 'exceljs';
 
 // Basic constants used across the app
 const DB_NAME = 'inventario_bodega_db_v1';
-const CURRENCIES = ['S/'];
+
+const CURRENCIES = ['S/', '$'];
 
 const DEFAULT_COLUMNS = [
   { key: 'sku', label: 'SKU', required: true },
@@ -242,72 +245,116 @@ function Onboarding({ onComplete, initialData }) {
   );
 }
 
-// Device Panel component - Simplified
+// Device Panel component
 function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChange, availableDevices, salesSensorConnected, onSensorConnect, onSensorDisconnect }) {
   return (
     <div className="panel">
-      <div style={{ marginBottom: '24px' }}>
-        <h3>🔗 Estado de Dispositivos</h3>
+      {/* Panel de Pulsera */}
+      <div style={{ marginBottom: '24px', paddingBottom: '24px', borderBottom: '1px solid var(--color-border)' }}>
+        <h3 style={{ marginBottom: '16px' }}>🔗 Estado de la Pulsera</h3>
         
-        {/* Estado de Pulsera */}
-        <div style={{ marginBottom: '16px', padding: '12px', border: '1px solid var(--color-border)', borderRadius: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+            <div className={`device-indicator device-indicator--${connected ? 'connected' : 'disconnected'}`}></div>
             <strong>{device.name}</strong>
+          </div>
+          <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+            ID: {device.id}
+          </div>
+          {device?.operator ? (
+            <div style={{ fontSize: '14px', color: 'var(--color-success)', marginBottom: '8px' }}>
+              👤 {device.operator}
+            </div>
+          ) : (
+            <div style={{ fontSize: '13px', color: 'var(--color-warning)', marginBottom: '8px' }}>
+              ⚠️ Sin operador asignado
+            </div>
+          )}
+          <RSSIIndicator rssi={device.rssi} connected={connected} />
+          <div style={{ marginTop: '8px' }}>
             <span className={`status ${connected ? 'status--success' : 'status--error'}`}>
-              {connected ? 'Conectado' : 'Desconectado'}
+              {connected ? 'Conectado (simulado)' : 'Desconectado'}
             </span>
           </div>
-          {device?.operator && <div>👤 {device.operator}</div>}
-          
+        </div>
+        
+        <div style={{ marginBottom: '24px' }}>
           <button 
             className="btn btn--primary btn--sm btn--full-width"
             onClick={connected ? onDisconnect : onConnect}
+            style={{ marginBottom: '8px' }}
             disabled={!connected && !device?.operator}
-            style={{ marginTop: '8px' }}
+            title={!connected && !device?.operator ? 'Asigna un operador a esta pulsera antes de conectar' : ''}
           >
             {connected ? '🔌 Desconectar' : '🔌 Conectar'}
           </button>
         </div>
 
-        {/* Estado del Sensor de Ventas */}
-        <div style={{ padding: '12px', border: '1px solid var(--color-border)', borderRadius: '8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <strong>Sensor de Ventas</strong>
-            <span className={`status ${salesSensorConnected ? 'status--success' : 'status--error'}`}>
-              {salesSensorConnected ? 'Conectado' : 'Desconectado'}
-            </span>
-          </div>
-          
-          <button 
-            className="btn btn--primary btn--sm btn--full-width"
-            onClick={salesSensorConnected ? onSensorDisconnect : onSensorConnect}
-            disabled={!connected}
-            style={{ marginTop: '8px' }}
-          >
-            {salesSensorConnected ? '🔌 Desconectar' : '🔌 Conectar'}
-          </button>
+        <div>
+          <h4 style={{ fontSize: '16px', marginBottom: '12px' }}>📡 Dispositivos Disponibles</h4>
+          {availableDevices.map(dev => (
+            <div key={dev.id} style={{ marginBottom: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
+                <input
+                  type="radio"
+                  name="device"
+                  value={dev.id}
+                  checked={device.id === dev.id}
+                  onChange={() => onDeviceChange(dev)}
+                  disabled={connected && dev.id !== device.id}
+                  style={{ marginRight: '8px' }}
+                />
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '500' }}>{dev.name}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                    {dev.id} • RSSI: {dev.rssi} dBm
+                  </div>
+                </div>
+              </label>
+            </div>
+          ))}
+          {connected && (
+            <p style={{ fontSize: '12px', color: 'var(--color-warning)', marginTop: '8px' }}>
+              💡 Desconecta primero para cambiar de dispositivo
+            </p>
+          )}
         </div>
       </div>
 
-      {/* Lista de dispositivos simplificada */}
-      <div style={{ marginTop: '16px' }}>
-        <h4>📡 Dispositivos Disponibles</h4>
-        {availableDevices.map(dev => (
-          <div key={dev.id} style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
-              <input
-                type="radio"
-                name="device"
-                value={dev.id}
-                checked={device.id === dev.id}
-                onChange={() => onDeviceChange(dev)}
-                disabled={connected && dev.id !== device.id}
-                style={{ marginRight: '8px' }}
-              />
-              <div>{dev.name}</div>
-            </label>
+      {/* Panel del Sensor de Ventas */}
+      <div>
+        <h3 style={{ marginBottom: '16px' }}>📊 Sensor de Ventas</h3>
+        
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+            <div className={`device-indicator device-indicator--${salesSensorConnected ? 'connected' : 'disconnected'}`}></div>
+            <strong>Sensor de Ventas</strong>
           </div>
-        ))}
+          <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+            ID: SALES-001
+          </div>
+          <div style={{ marginTop: '8px' }}>
+            <span className={`status ${salesSensorConnected ? 'status--success' : 'status--error'}`}>
+              {salesSensorConnected ? 'Conectado (simulado)' : 'Desconectado'}
+            </span>
+          </div>
+        </div>
+        
+        <div>
+          <button 
+            className="btn btn--primary btn--sm btn--full-width"
+            onClick={salesSensorConnected ? onSensorDisconnect : onSensorConnect}
+            disabled={!connected} // Solo permitir conectar si la pulsera está conectada
+            title={!connected ? 'Conecta la pulsera primero' : ''}
+          >
+            {salesSensorConnected ? '🔌 Desconectar Sensor' : '🔌 Conectar Sensor'}
+          </button>
+          {!connected && (
+            <p style={{ fontSize: '12px', color: 'var(--color-warning)', marginTop: '8px' }}>
+              💡 Conecta la pulsera antes de conectar el sensor
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -882,16 +929,9 @@ function EventFeed({ events, onUndoSale }) {
   );
 }
 
-// Simplified Add Product Form
+// Small form to add products quickly
 function AddProductForm({ onAdd }) {
-  const [form, setForm] = useState({ 
-    sku: '', 
-    name: '', 
-    category: '', 
-    quantity: 0, 
-    purchase_price: '', 
-    sale_price: '' 
-  });
+  const [form, setForm] = useState({ sku: '', name: '', category: '', quantity: 0, purchase_price: '', sale_price: '', lot: '', expiry: '' });
 
   const submit = (e) => {
     e.preventDefault();
@@ -899,39 +939,33 @@ function AddProductForm({ onAdd }) {
       alert('SKU y Nombre son requeridos');
       return;
     }
-    
+    // Validate prices: purchase should typically be <= sale
     const purchase = Number(form.purchase_price || 0);
     const sale = Number(form.sale_price || 0);
-    if (purchase >= sale) {
-      alert('El precio de venta debe ser mayor al precio de compra');
-      return;
+    if (purchase > 0 && sale > 0 && purchase >= sale) {
+      const swap = confirm('El precio de compra es mayor que el precio de venta. ¿Deseas intercambiarlos (compra <-> venta)?');
+      if (swap) {
+        const swapped = { ...form, purchase_price: String(sale), sale_price: String(purchase) };
+        if (onAdd) onAdd(swapped);
+        setForm({ sku: '', name: '', category: '', quantity: 0, purchase_price: '', sale_price: '', lot: '', expiry: '' });
+        return;
+      } else {
+        // proceed but warn
+        alert('Error: El precio de compra debe ser menor que el precio de venta.'); return;
+      }
     }
-    
-    onAdd(form);
-    setForm({ 
-      sku: '', 
-      name: '', 
-      category: '', 
-      quantity: 0, 
-      purchase_price: '', 
-      sale_price: '' 
-    });
+    if (onAdd) onAdd(form);
+    setForm({ sku: '', name: '', category: '', quantity: 0, purchase_price: '', sale_price: '', lot: '', expiry: '' });
   };
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-      <input className="form-control" placeholder="SKU" value={form.sku} 
-        onChange={(e) => setForm(prev => ({ ...prev, sku: e.target.value }))} />
-      <input className="form-control" placeholder="Nombre" value={form.name} 
-        onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))} />
-      <input className="form-control" placeholder="Categoría" value={form.category} 
-        onChange={(e) => setForm(prev => ({ ...prev, category: e.target.value }))} />
-      <input className="form-control" type="number" min="0" placeholder="Cantidad" value={form.quantity} 
-        onChange={(e) => setForm(prev => ({ ...prev, quantity: e.target.value }))} />
-      <input className="form-control" type="number" step="0.01" placeholder="Precio compra" value={form.purchase_price} 
-        onChange={(e) => setForm(prev => ({ ...prev, purchase_price: e.target.value }))} />
-      <input className="form-control" type="number" step="0.01" placeholder="Precio venta" value={form.sale_price} 
-        onChange={(e) => setForm(prev => ({ ...prev, sale_price: e.target.value }))} />
+    <form onSubmit={submit} style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+      <input className="form-control" placeholder="SKU" value={form.sku} onChange={(e) => setForm(prev => ({ ...prev, sku: e.target.value }))} style={{ width: '120px' }} />
+      <input className="form-control" placeholder="Nombre" value={form.name} onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value }))} style={{ width: '180px' }} />
+      <input className="form-control" placeholder="Categoría" value={form.category} onChange={(e) => setForm(prev => ({ ...prev, category: e.target.value }))} style={{ width: '140px' }} />
+      <input className="form-control" type="number" min="0" placeholder="Cantidad" value={form.quantity} onChange={(e) => setForm(prev => ({ ...prev, quantity: e.target.value }))} style={{ width: '100px' }} />
+      <input className="form-control" type="number" step="0.01" placeholder="Precio compra" value={form.purchase_price} onChange={(e) => setForm(prev => ({ ...prev, purchase_price: e.target.value }))} style={{ width: '120px' }} />
+      <input className="form-control" type="number" step="0.01" placeholder="Precio venta" value={form.sale_price} onChange={(e) => setForm(prev => ({ ...prev, sale_price: e.target.value }))} style={{ width: '120px' }} />
       <button className="btn btn--primary btn--sm" type="submit">Agregar</button>
     </form>
   );
@@ -1414,29 +1448,19 @@ function ConnectionModal({ show }) {
 
 // Main App component
 function App() {
+  const [showConnectionModal, setShowConnectionModal] = useState(true);
   const [db, setDb] = useState(null);
-  const [settings, setSettings] = useState(null);
-  const [dbStatus, setDbStatus] = useState('initializing');
-  const [toasts, setToasts] = useState([]);
-  const [events, setEvents] = useState([]);
+  const [settings, setSettings] = useState(null); 
+  const [prevOnboarding, setPrevOnboarding] = useState(null);
+  const [activeView, setActiveView] = useState('dashboard');
+  const [dbStatus, setDbStatus] = useState('initializing'); // 'initializing', 'ready', 'error'
   
   // Device state
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
-  const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]);
+  const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]); // will be updated after onboarding if operators provided
   const [connected, setConnected] = useState(false);
   const [salesSensorConnected, setSalesSensorConnected] = useState(false);
   const [simSinceReset, setSimSinceReset] = useState(0);
-  
-  // UI state
-  const [activeView, setActiveView] = useState('dashboard');
-  const [isExporting, setIsExporting] = useState(false);
-  const [showConnectionModal, setShowConnectionModal] = useState(false);
-  const [prevOnboarding, setPrevOnboarding] = useState(null);
-  
-  // Data state
-  const [products, setProducts] = useState([]);
-  const [batches, setBatches] = useState([]);
-  const [movements, setMovements] = useState([]);
   
   // Data state
   const [products, setProducts] = useState([]);
@@ -1452,20 +1476,36 @@ function App() {
     const initializeApp = async () => {
       setDbStatus('initializing');
       try {
+        // Inicializar la base de datos
         const database = await initDB();
         setDb(database);
         
+        // Cargar configuración
         const savedSettings = await database.get('settings', 'onboarding');
         if (savedSettings) {
           setSettings(savedSettings.value);
+
+          // Mapear operadores a dispositivos
           const ops = savedSettings.value?.operators || [];
-          const mapped = SIMULATED_DEVICES.map((d, i) => ({ 
-            ...d, 
-            operator: ops[i] || d.operator 
-          }));
+          const mapped = SIMULATED_DEVICES.map((d, i) => ({ ...d, operator: ops[i] || d.operator }));
           setDevices(mapped);
-          setSelectedDevice(mapped[0]);
-          setConnected(true);
+          const first = mapped[0];
+          
+          if (first) {
+            setSelectedDevice(first);
+            setConnected(true);
+            addToast('info', 'Conexión automática', 'Sensor de ventas activado automáticamente');
+            setEvents(prev => [{
+              id: Date.now(),
+              type: 'system',
+              sku: 'SYSTEM',
+              name: 'Sistema inicializado y conectado',
+              quantity: 0,
+              timestamp: nowISO(),
+              device_id: first.id,
+              operator: 'system'
+            }, ...prev.slice(0, 19)]);
+          }
         }
 
         // Cargar datos iniciales
@@ -1701,10 +1741,30 @@ function App() {
   };
   
   const handleProcessEvent = async (payload) => {
-    if (!db || !connected) return;
+    if (!db) {
+      console.error('Base de datos no disponible');
+      return;
+    }
+
+    if (!connected) {
+      console.error('Dispositivo no conectado');
+      return;
+    }
     
     try {
-      if (!payload.sku || !payload.name) return;
+      console.log('Procesando evento:', payload);
+      
+      // Validar datos básicos
+      if (!payload.sku && !payload.barcode) {
+        console.error('Se requiere SKU o código de barras');
+        return;
+      }
+      
+      if (!payload.name) {
+        console.error('Se requiere nombre del producto');
+        return;
+      }
+      
       // Base movement record con valores por defecto
       const baseMovement = {
         type: payload.event,
@@ -2349,9 +2409,12 @@ function App() {
     return <Onboarding onComplete={handleOnboardingComplete} initialData={prevOnboarding} />;
   }
   
-return (
-  <div className="app-container">
-    <Toast toasts={toasts} removeToast={removeToast} />      {/* Header */}
+  return (
+    <div className="app-container">
+      <ConnectionModal show={showConnectionModal} />
+      <Toast toasts={toasts} removeToast={removeToast} />
+      
+      {/* Header */}
       <div style={{ background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)', padding: '12px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
