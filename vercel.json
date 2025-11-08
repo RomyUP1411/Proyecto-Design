@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "cd inventario-bodega && npm install && npm run build && rm -rf ../dist && cp -R dist ../dist",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

@@ -1,0 +1,8 @@
+{
+  "name": "proyecto-design-root",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "cd inventario-bodega && npm install && npm run build && rm -rf ../dist && cp -R dist ../dist"
+  }
+}
