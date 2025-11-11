@@ -122,7 +122,7 @@ function Toast({ toasts, removeToast }){
       if (toast.autoHide === false) return;
       if (timeoutsRef.current[toast.id]) return; // ya tiene timer
 
-      const timeoutMs = toast.type === 'success' ? 3000 : toast.type === 'error' ? 5000 : 4000;
+      const timeoutMs = 1500;
       const t = setTimeout(() => {
         try { removeToast(toast.id); } catch (e) { /* ignore */ }
         delete timeoutsRef.current[toast.id];
@@ -721,7 +721,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
             </div>
           )}
           
-          {formData.type === 'venta' && (
+          {formData.type !== 'devolucion' && (
             <div className="form-group">
               <label className="form-label">Precio Venta</label>
               <input
