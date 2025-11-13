@@ -929,7 +929,7 @@ function AddProductForm({ onAdd }) {
 }
 
 // Inventory Table component
-function InventoryTable({ batches, products, movements, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){
+function InventoryTable({ batches, products, movements, sales, settings, onRefresh, onExport, onDailyReport, onAddProduct, onReturn }){
   const [searchTerm, setSearchTerm] = useState('');
   // sectionMode controla la sección principal: 'ventas' o 'inventario'
   // Mostrar solo inventario en esta tabla; Ventas tiene su vista dedicada
@@ -1079,7 +1079,7 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
         <h4 style={{ margin: '0 0 8px 0' }}>➕ Agregar producto rápido</h4>
         <AddProductForm onAdd={onAddProduct} />
       </div>
-      {/* Stats: mostrar producto más/menos vendido usando movimientos (ventas - devoluciones) */}
+      {/* Stats: inventario + ventas */}
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-value">{products.length}</div>
@@ -1098,39 +1098,31 @@ function InventoryTable({ batches, products, movements, settings, onRefresh, onE
           <div className="stat-label">Valor Inventario</div>
         </div>
         {/* Producto más/menos vendido */}
-        {movements && (
-          (() => {
-            const netSales = {};
-            movements.forEach(m => {
-              if (!m.sku) return;
-              if (!netSales[m.sku]) netSales[m.sku] = 0;
-              if (m.type === 'venta') netSales[m.sku] += (m.quantity || 0);
-              if (m.type === 'devolucion' || m.type === 'devolucion_venta') netSales[m.sku] -= (m.quantity || 0);
-            });
+        {(() => {
+          const completedSales = (sales || []).filter(sale => sale && sale.status !== 'cancelled');
+          const totals = {};
+          completedSales.forEach(sale => {
+            if (!sale?.sku) return;
+            totals[sale.sku] = (totals[sale.sku] || 0) + (sale.quantity || 0);
+          });
+          const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+          if (entries.length === 0) return null;
+          const most = entries[0];
+          const least = entries.length > 1 ? entries[entries.length - 1] : entries[0];
 
-            const entries = Object.entries(netSales);
-            let most = null;
-            let least = null;
-            if (entries.length > 0) {
-              entries.sort((a, b) => b[1] - a[1]);
-              most = entries[0];
-              least = entries[entries.length - 1];
-            }
-
-            return (
-              <>
-                <div className="stat-card">
-                  <div className="stat-value">{most ? `${products.find(p=>p.sku===most[0])?.name || most[0]} (${most[1]})` : '-'}</div>
-                  <div className="stat-label">Producto más vendido</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-value">{least ? `${products.find(p=>p.sku===least[0])?.name || least[0]} (${least[1]})` : '-'}</div>
-                  <div className="stat-label">Producto menos vendido</div>
-                </div>
-              </>
-            );
-          })()
-        )}
+          return (
+            <>
+              <div className="stat-card">
+                <div className="stat-value">{`${products.find(p=>p.sku===most[0])?.name || most[0]} (${most[1]})`}</div>
+                <div className="stat-label">Producto más vendido</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-value">{`${products.find(p=>p.sku===least[0])?.name || least[0]} (${least[1]})`}</div>
+                <div className="stat-label">Producto menos vendido</div>
+              </div>
+            </>
+          );
+        })()}
       </div>
       
       {/* Toolbar */}
@@ -1623,6 +1615,14 @@ function App() {
       return active[0];
     }
     return selectedDevice;
+  };
+
+  const resolveOperatorName = (rawOperator, deviceId) => {
+    const trimmed = String(rawOperator || '').trim();
+    if (trimmed) return trimmed;
+    const device = devices.find(d => d.id === deviceId);
+    if (device?.operator) return device.operator;
+    return settings?.user || 'Sin operador';
   };
   
   useEffect(() => {
@@ -2486,7 +2486,7 @@ function App() {
       
       // Añadir resumen por operador
       const operatorSummary = workbook.addWorksheet('Resumen por Operador');
-      operatorSummary.addRow(['Operador', 'Pulsera', 'Total Ventas', 'Total Compras', 'Total Devoluciones']);
+      operatorSummary.addRow(['Operador', 'Pulsera', 'Unidades Vendidas', 'Unidades Ingresadas', 'Unidades Devueltas']);
       
       // Filter today's movements
       const today = new Date().toISOString().split('T')[0];
@@ -2499,6 +2499,7 @@ function App() {
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
         .forEach(mov => {
           // Añadir movimiento a la hoja principal
+          const operatorName = resolveOperatorName(mov.operator, mov.device_id);
           movementsSheet.addRow([
             formatDateTime(mov.timestamp),
             mov.type,
@@ -2507,38 +2508,34 @@ function App() {
             mov.quantity,
             mov.price,
             mov.lot || '',
-            mov.operator,
+            operatorName,
             mov.device_id,
             mov.lot?.startsWith('DEV-') || mov.lot?.startsWith('UNDO-') ? 'Devuelto' : 'Activo'
           ]);
 
           // Actualizar estadísticas del operador
-          if (!operatorStats[mov.operator]) {
-            operatorStats[mov.operator] = {
+          if (!operatorStats[operatorName]) {
+            operatorStats[operatorName] = {
               device: mov.device_id,
               ventas: 0,        // total unidades vendidas
-              compras: 0,       // número de eventos de ingreso (conteo)
-              devoluciones: 0   // número de eventos de devolución (conteo)
+              compras: 0,       // total unidades ingresadas
+              devoluciones: 0   // total unidades devueltas
             };
           }
 
           // Normalizar tipo lógico: algunos movimientos almacenan 'ingreso_inventario', 'devolucion_venta', etc.
           const mt = String(mov.type || '').toLowerCase();
           if (mt.includes('venta')) {
-            // ventas: sumar unidades vendidas
-            operatorStats[mov.operator].ventas += (mov.quantity || 0);
+            operatorStats[operatorName].ventas += (mov.quantity || 0);
           }
 
           if (mt.includes('ingreso')) {
-            // compras: contar eventos de ingreso (veces que hubo ingreso de inventario)
-            operatorStats[mov.operator].compras += 1;
+            operatorStats[operatorName].compras += (mov.quantity || 0);
           }
 
           if (mt.includes('devolucion')) {
-            // devoluciones: contar eventos de devolución (no sumar unidades)
-            operatorStats[mov.operator].devoluciones += 1;
+            operatorStats[operatorName].devoluciones += (mov.quantity || 0);
           }
-        });
 
       // Añadir resumen por operador
       Object.entries(operatorStats).forEach(([operator, stats]) => {
@@ -2807,6 +2804,7 @@ function App() {
             batches={batches}
             products={products}
             movements={movements}
+            sales={sales}
             settings={settings}
             onRefresh={() => refreshData()}
             onExport={handleExportInventory}
