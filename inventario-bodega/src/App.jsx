@@ -263,12 +263,6 @@ function Onboarding({ onComplete, initialData }) {
 
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn--primary" type="submit">🚀 Comenzar</button>
-            <button type="button" className="btn btn--outline" onClick={() => {
-              // Quick start: use defaults and continue
-              const quick = { ...formData };
-              if (!String(quick.bodega || '').trim()) quick.bodega = 'Bodega Principal';
-              if (onComplete) onComplete(quick);
-            }}>⚡ Comenzar rápido</button>
           </div>
         </form>
       </div>
@@ -370,7 +364,7 @@ function DevicePanel({ devices, activeDeviceIds, selectedDevice, onToggleDevice,
 }
 
 // Simulate Panel component
-function SimulatePanel({ connected, connectedDevices = [], salesSensorConnected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
+function SimulatePanel({ connected, connectedDevices = [], salesSensorConnected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches, products = [] }) {
   const [activeTab, setActiveTab] = useState('form');
   const [jsonInput, setJsonInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -572,15 +566,22 @@ function SimulatePanel({ connected, connectedDevices = [], salesSensorConnected,
         setIsScanning(false);
         return;
       }
-      const candidates = SAMPLE_PRODUCTS.filter(p => (stockByProduct[p.sku] || 0) > 0);
-      if (candidates.length === 0) {
+      const inventoryEntries = Object.entries(stockByProduct).filter(([_, qty]) => qty > 0);
+      if (inventoryEntries.length === 0) {
         alert('No hay stock disponible para vender. Primero registra ingresos.');
         setIsScanning(false);
         return;
       }
-      selectedProduct = candidates[Math.floor(Math.random() * candidates.length)];
-      const maxQty = Math.max(1, stockByProduct[selectedProduct.sku] || 1);
-      // Probabilidad: 85% ventas pequeñas (1-5), 15% ventas mayores (5-10)
+      const [sku, availableQty] = inventoryEntries[Math.floor(Math.random() * inventoryEntries.length)];
+      const productInfo = products.find(p => p.sku === sku) || SAMPLE_PRODUCTS.find(p => p.sku === sku) || { sku, name: sku, category: 'General', basePrice: 5 };
+      selectedProduct = {
+        ...productInfo,
+        sku,
+        name: productInfo.name || sku,
+        category: productInfo.category || 'General',
+        basePrice: productInfo.basePrice || productInfo.default_purchase_price || 5
+      };
+      const maxQty = Math.max(1, availableQty || 1);
       const r = Math.random();
       if (r < 0.85) {
         quantity = Math.min(Math.floor(Math.random() * 5) + 1, maxQty); // 1-5
@@ -595,7 +596,11 @@ function SimulatePanel({ connected, connectedDevices = [], salesSensorConnected,
     // Precios basados en el producto
     const basePrice = selectedProduct.basePrice || parseFloat((Math.random() * 15 + 5).toFixed(2));
     const purchase_price = randomEvent === 'ingreso' ? basePrice : basePrice * 0.75;
-    const sale_price = parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2));
+    const saleReference = selectedProduct.default_sale_price || (selectedProduct.basePrice ? selectedProduct.basePrice * 1.2 : null);
+    const normalizedSaleRef = saleReference != null ? Number(saleReference) : null;
+    const sale_price = normalizedSaleRef && !Number.isNaN(normalizedSaleRef)
+      ? Number(normalizedSaleRef.toFixed(2))
+      : parseFloat((basePrice * (1.3 + Math.random() * 0.4)).toFixed(2));
 
     const simulatedPayload = {
       event: randomEvent,
@@ -2791,6 +2796,7 @@ function App() {
               simSinceReset={simSinceReset}
               setSimSinceReset={setSimSinceReset}
               batches={batches}
+              products={products}
             />
             
             {/* Right Panel - Event Feed */}
