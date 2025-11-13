@@ -277,78 +277,56 @@ function Onboarding({ onComplete, initialData }) {
 }
 
 // Device Panel component
-function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChange, availableDevices, salesSensorConnected, onSensorConnect, onSensorDisconnect }) {
+function DevicePanel({ devices, activeDeviceIds, selectedDevice, onToggleDevice, onDeviceChange, salesSensorConnected, onSensorConnect, onSensorDisconnect }) {
+  const hasActiveDevices = activeDeviceIds.length > 0;
+
   return (
     <div className="panel">
-      {/* Panel de Pulsera */}
-      <div style={{ marginBottom: '24px', paddingBottom: '24px', borderBottom: '1px solid var(--color-border)' }}>
-        <h3 style={{ marginBottom: '16px' }}>🔗 Estado de la Pulsera</h3>
-        
-        <div style={{ marginBottom: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-            <div className={`device-indicator device-indicator--${connected ? 'connected' : 'disconnected'}`}></div>
-            <strong>{device.name}</strong>
-          </div>
-          <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-            ID: {device.id}
-          </div>
-          {device?.operator ? (
-            <div style={{ fontSize: '14px', color: 'var(--color-success)', marginBottom: '8px' }}>
-              👤 {device.operator}
-            </div>
-          ) : (
-            <div style={{ fontSize: '13px', color: 'var(--color-warning)', marginBottom: '8px' }}>
-              ⚠️ Sin operador asignado
-            </div>
-          )}
-          <RSSIIndicator rssi={device.rssi} connected={connected} />
-          <div style={{ marginTop: '8px' }}>
-            <span className={`status ${connected ? 'status--success' : 'status--error'}`}>
-              {connected ? 'Conectado (simulado)' : 'Desconectado'}
-            </span>
-          </div>
-        </div>
-        
-        <div style={{ marginBottom: '24px' }}>
-          <button 
-            className="btn btn--primary btn--sm btn--full-width"
-            onClick={connected ? onDisconnect : onConnect}
-            style={{ marginBottom: '8px' }}
-            disabled={!connected && !device?.operator}
-            title={!connected && !device?.operator ? 'Asigna un operador a esta pulsera antes de conectar' : ''}
-          >
-            {connected ? '🔌 Desconectar' : '🔌 Conectar'}
-          </button>
-        </div>
+      <div style={{ marginBottom: '24px' }}>
+        <h3 style={{ marginBottom: '16px' }}>🔗 Pulseras Simuladas</h3>
+        <p style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+          Pulseras conectadas: <strong>{activeDeviceIds.length}</strong>
+        </p>
 
-        <div>
-          <h4 style={{ fontSize: '16px', marginBottom: '12px' }}>📡 Dispositivos Disponibles</h4>
-          {availableDevices.map(dev => (
-            <div key={dev.id} style={{ marginBottom: '8px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', padding: '8px', border: '1px solid var(--color-border)', borderRadius: '6px' }}>
-                <input
-                  type="radio"
-                  name="device"
-                  value={dev.id}
-                  checked={device.id === dev.id}
-                  onChange={() => onDeviceChange(dev)}
-                  disabled={connected && dev.id !== device.id}
-                  style={{ marginRight: '8px' }}
-                />
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '500' }}>{dev.name}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                    {dev.id} • RSSI: {dev.rssi} dBm
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {devices.map(dev => {
+            const isActive = activeDeviceIds.includes(dev.id);
+            const isSelected = selectedDevice?.id === dev.id;
+            return (
+              <div key={dev.id} style={{
+                border: `1px solid ${isSelected ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                borderRadius: '10px',
+                padding: '12px',
+                background: isActive ? 'rgba(33,128,141,0.08)' : 'var(--color-surface)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div style={{ cursor: 'pointer' }} onClick={() => onDeviceChange(dev)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div className={`device-indicator device-indicator--${isActive ? 'connected' : 'disconnected'}`}></div>
+                      <strong>{dev.name}</strong>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                      ID: {dev.id} • RSSI: {dev.rssi} dBm
+                    </div>
+                    <div style={{ fontSize: '12px', marginTop: '4px', color: dev.operator ? 'var(--color-success)' : 'var(--color-warning)' }}>
+                      {dev.operator ? `👤 ${dev.operator}` : '⚠️ Sin operador asignado'}
+                    </div>
+                    <div style={{ marginTop: '6px' }}>
+                      <RSSIIndicator rssi={dev.rssi} connected={isActive} />
+                    </div>
                   </div>
+                  <button
+                    className={`btn btn--sm ${isActive ? 'btn--outline' : 'btn--primary'}`}
+                    onClick={() => onToggleDevice(dev)}
+                    disabled={!dev.operator}
+                    title={!dev.operator ? 'Asigna un operador desde la configuración inicial' : ''}
+                  >
+                    {isActive ? '🔌 Desconectar' : '🔌 Conectar'}
+                  </button>
                 </div>
-              </label>
-            </div>
-          ))}
-          {connected && (
-            <p style={{ fontSize: '12px', color: 'var(--color-warning)', marginTop: '8px' }}>
-              💡 Desconecta primero para cambiar de dispositivo
-            </p>
-          )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -375,14 +353,14 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
           <button 
             className="btn btn--primary btn--sm btn--full-width"
             onClick={salesSensorConnected ? onSensorDisconnect : onSensorConnect}
-            disabled={!connected} // Solo permitir conectar si la pulsera está conectada
-            title={!connected ? 'Conecta la pulsera primero' : ''}
+            disabled={!hasActiveDevices}
+            title={!hasActiveDevices ? 'Conecta al menos una pulsera primero' : ''}
           >
             {salesSensorConnected ? '🔌 Desconectar Sensor' : '🔌 Conectar Sensor'}
           </button>
-          {!connected && (
+          {!hasActiveDevices && (
             <p style={{ fontSize: '12px', color: 'var(--color-warning)', marginTop: '8px' }}>
-              💡 Conecta la pulsera antes de conectar el sensor
+              💡 Conecta al menos una pulsera antes de conectar el sensor
             </p>
           )}
         </div>
@@ -392,7 +370,7 @@ function DevicePanel({ device, connected, onConnect, onDisconnect, onDeviceChang
 }
 
 // Simulate Panel component
-function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
+function SimulatePanel({ connected, connectedDevices = [], salesSensorConnected, onProcessEvent, settings, simSinceReset, setSimSinceReset, device, batches }) {
   const [activeTab, setActiveTab] = useState('form');
   const [jsonInput, setJsonInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
@@ -401,6 +379,9 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
   
   const canSimulate = connected && salesSensorConnected;
   const intervalRef = useRef(null);
+  const operatorPool = connectedDevices.length > 0 ? connectedDevices : (device ? [device] : []);
+  const primaryDevice = operatorPool[0] || device || null;
+  const defaultOperator = operatorPool[0]?.operator || device?.operator || settings?.user || '';
   
   const [formData, setFormData] = useState({
     type: 'ingreso',
@@ -412,8 +393,15 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
     lot: '',
     expiry: '',
     category: '',
-    operator: device?.operator || settings?.user || ''
+    operator: defaultOperator
   });
+
+  useEffect(() => {
+    if (!formData.operator && defaultOperator) {
+      setFormData(prev => ({ ...prev, operator: defaultOperator }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultOperator]);
   
   useEffect(() => {
     if (continuousMode && connected) {
@@ -430,7 +418,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
   const examplePayload = {
     event: 'ingreso',
     source: 'brazalete_simulado',
-    device_id: device?.id || 'BRZ-001',
+    device_id: primaryDevice?.id || 'BRZ-001',
     timestamp: nowISO(),
     barcode: '7501031311306',
     sku: 'GALX-001',
@@ -442,7 +430,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
     expiry: '2026-03-01',
     category: 'Panadería',
     bodega: settings?.bodega || 'Bodega Central',
-    operator: device?.operator || settings?.user || 'Juan'
+    operator: primaryDevice?.operator || settings?.user || 'Juan'
   };
   
   const handleProcessJSON = () => {
@@ -483,7 +471,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
     const payload = {
       event: formData.type,
       source: 'brazalete_simulado',
-      device_id: device?.id || 'BRZ-001',
+      device_id: primaryDevice?.id || 'BRZ-001',
       timestamp: nowISO(),
       barcode: formData.barcode,
       sku: formData.barcode || `SKU-${Date.now()}`,
@@ -495,7 +483,8 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       expiry: formData.expiry,
       category: formData.category,
       bodega: settings?.bodega || 'Bodega Central',
-      operator: formData.operator || device?.operator || settings?.user
+      operator: formData.operator || primaryDevice?.operator || settings?.user,
+      allowRandomOperator: false
     };
     
     onProcessEvent(payload);
@@ -611,7 +600,7 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
     const simulatedPayload = {
       event: randomEvent,
       source: 'brazalete_simulado',
-      device_id: device?.id || 'BRZ-001',
+      device_id: primaryDevice?.id || 'BRZ-001',
       timestamp: nowISO(),
       barcode: `750${Math.floor(Math.random() * 1000000000)}`,
       sku: selectedProduct.sku,
@@ -623,7 +612,8 @@ function SimulatePanel({ connected, salesSensorConnected, onProcessEvent, settin
       expiry: new Date(Date.now() + Math.random() * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       category: selectedProduct.category,
       bodega: settings?.bodega || 'Bodega Central',
-      operator: device?.operator || settings?.user || 'Juan'
+      operator: primaryDevice?.operator || settings?.user || 'Juan',
+      autoAssignDevice: true
     };
 
     // Procesar evento (onProcessEvent viene de props)
@@ -1608,7 +1598,8 @@ function App() {
   // Device state
   const [devices, setDevices] = useState(SIMULATED_DEVICES);
   const [selectedDevice, setSelectedDevice] = useState(SIMULATED_DEVICES[0]); // will be updated after onboarding if operators provided
-  const [connected, setConnected] = useState(false);
+  const [activeDeviceIds, setActiveDeviceIds] = useState([]);
+  const connected = activeDeviceIds.length > 0;
   const [salesSensorConnected, setSalesSensorConnected] = useState(false);
   const [simSinceReset, setSimSinceReset] = useState(0);
   
@@ -1623,6 +1614,16 @@ function App() {
   // UI state
   const [toasts, setToasts] = useState([]);
   const [isExporting, setIsExporting] = useState(false);
+
+  const getActiveDevices = () => devices.filter(d => activeDeviceIds.includes(d.id));
+  const resolveOperatorDevice = () => {
+    const active = getActiveDevices();
+    if (active.length > 0) {
+      if (selectedDevice && activeDeviceIds.includes(selectedDevice.id)) return selectedDevice;
+      return active[0];
+    }
+    return selectedDevice;
+  };
   
   useEffect(() => {
     const initializeApp = async () => {
@@ -1657,7 +1658,7 @@ function App() {
 
               if (first) {
                 setSelectedDevice(first);
-                setConnected(true);
+                setActiveDeviceIds([first.id]);
                 addToast('info', 'Conexión automática', 'Sensor de ventas activado automáticamente');
                 setEvents(prev => [{
                   id: Date.now(),
@@ -1854,7 +1855,7 @@ function App() {
       const updatedSelected = mapped[0];
       if (updatedSelected) {
         setSelectedDevice(updatedSelected);
-        setConnected(true);
+        setActiveDeviceIds([updatedSelected.id]);
         addToast('info', 'Hacemos conexión con sensor de ventas', 'Sensor activado automáticamente');
         setEvents(prev => [{
           id: Date.now(),
@@ -1891,13 +1892,40 @@ function App() {
     addToast('info', 'Reconfigurar', 'La configuración actual se cargará para edición (no se eliminarán datos).');
   };
 
-  // Cuando se conecta el dispositivo, mostrar mensaje en el feed de eventos y ocultar el modal
+  // Ocultar modal apenas haya al menos una pulsera conectada
   useEffect(() => {
-    if (connected && selectedDevice) {
-      // Ocultar el modal de conexión
+    if (connected) {
       setShowConnectionModal(false);
-      
-      // Agregar evento al feed
+    }
+  }, [connected]);
+  
+  const handleDeviceChange = (device) => {
+    setSelectedDevice(device);
+    addToast('info', 'Dispositivo seleccionado', `${device.name} seleccionado`);
+  };
+
+  const toggleDeviceConnection = (device) => {
+    if (!device) return;
+    if (activeDeviceIds.includes(device.id)) {
+      setActiveDeviceIds(prev => prev.filter(id => id !== device.id));
+      addToast('warning', 'Desconectado', `Pulsera ${device.id} desconectada`);
+      setEvents(prev => [{
+        id: Date.now(),
+        type: 'system',
+        sku: 'SYSTEM',
+        name: 'Conexión cerrada',
+        quantity: 0,
+        timestamp: nowISO(),
+        device_id: device.id,
+        operator: device.operator || 'system'
+      }, ...prev.slice(0, 19)]);
+    } else {
+      if (!device.operator) {
+        alert('Asigna un operador a esta pulsera antes de conectarla.');
+        return;
+      }
+      setActiveDeviceIds(prev => [...new Set([...prev, device.id])]);
+      addToast('success', 'Conectado', `Pulsera ${device.id} conectada (operador: ${device.operator})`);
       setEvents(prev => [{
         id: Date.now(),
         type: 'system',
@@ -1905,53 +1933,10 @@ function App() {
         name: 'Conexión establecida',
         quantity: 0,
         timestamp: nowISO(),
-        device_id: selectedDevice.id,
-        operator: 'system'
+        device_id: device.id,
+        operator: device.operator || 'system'
       }, ...prev.slice(0, 19)]);
     }
-  }, [connected, selectedDevice]);
-  
-  const handleConnect = () => {
-    if (!selectedDevice?.operator) {
-      alert('No se puede conectar: asigna un operador a esta pulsera primero.');
-      return;
-    }
-    setConnected(true);
-    addToast('success', 'Conectado', `Pulsera ${selectedDevice.id} conectada (operador: ${selectedDevice.operator})`);
-    setEvents(prev => [{
-      id: Date.now(),
-      type: 'system',
-      sku: 'SYSTEM',
-      name: 'Conexión establecida',
-      quantity: 0,
-      timestamp: nowISO(),
-      device_id: selectedDevice.id,
-      operator: 'system'
-    }, ...prev.slice(0, 19)]);
-  };
-  
-  const handleDisconnect = () => {
-    setConnected(false);
-    addToast('warning', 'Desconectado', `Brazalete ${selectedDevice.id} desconectado`);
-    setEvents(prev => [{
-      id: Date.now(),
-      type: 'system',
-      sku: 'SYSTEM',
-      name: 'Conexión cerrada',
-      quantity: 0,
-      timestamp: nowISO(),
-      device_id: selectedDevice.id,
-      operator: 'system'
-    }, ...prev.slice(0, 19)]);
-  };
-  
-  const handleDeviceChange = (device) => {
-    if (connected) {
-      addToast('warning', 'Dispositivo ocupado', 'Desconecta primero para cambiar de dispositivo');
-      return;
-    }
-    setSelectedDevice(device);
-    addToast('info', 'Dispositivo seleccionado', `${device.name} seleccionado`);
   };
   
   const handleProcessEvent = async (payload) => {
@@ -1975,6 +1960,16 @@ function App() {
         return;
       }
       
+      const activePool = getActiveDevices().filter(d => d.operator);
+      const fallbackPool = activePool.length > 0 ? activePool : devices.filter(d => d.operator);
+      const shouldRandomize = fallbackPool.length > 0 && (payload.allowRandomOperator !== false) && (payload.autoAssignDevice || fallbackPool.length > 1);
+      const requestedDevice = fallbackPool.find(d => d.id === payload.device_id);
+      const assignedDevice = shouldRandomize
+        ? fallbackPool[Math.floor(Math.random() * fallbackPool.length)]
+        : (requestedDevice || (fallbackPool.find(d => d.id === selectedDevice?.id) || fallbackPool[0] || selectedDevice));
+      const resolvedDeviceId = assignedDevice?.id || payload.device_id || selectedDevice?.id;
+      const resolvedOperator = payload.operator || assignedDevice?.operator || selectedDevice?.operator || settings?.user || 'Operador';
+
       // Base movement record con valores por defecto
       const movement = {
         type: payload.event,
@@ -1985,8 +1980,8 @@ function App() {
         lot: payload.lot || `LOT-${Date.now()}`,
         expiry: payload.expiry || null,
         timestamp: payload.timestamp || nowISO(),
-        device_id: payload.device_id || selectedDevice.id,
-        operator: payload.operator || selectedDevice?.operator || settings?.user || 'Operador',
+        device_id: resolvedDeviceId,
+        operator: resolvedOperator,
         bodega: payload.bodega || settings?.bodega || 'Bodega Principal'
       };
 
@@ -2750,12 +2745,11 @@ function App() {
           <div className="main-layout">
             {/* Left Panel - Device Control */}
             <DevicePanel
-              device={selectedDevice}
-              connected={connected}
-              onConnect={handleConnect}
-              onDisconnect={handleDisconnect}
+              devices={devices}
+              activeDeviceIds={activeDeviceIds}
+              selectedDevice={selectedDevice}
+              onToggleDevice={toggleDeviceConnection}
               onDeviceChange={handleDeviceChange}
-              availableDevices={devices}
               salesSensorConnected={salesSensorConnected}
               onSensorConnect={() => {
                 setSalesSensorConnected(true);
@@ -2790,6 +2784,7 @@ function App() {
             {/* Center Panel - Simulation */}
             <SimulatePanel
               connected={connected}
+              connectedDevices={getActiveDevices()}
               salesSensorConnected={salesSensorConnected}
               onProcessEvent={handleProcessEvent}
               settings={settings}
