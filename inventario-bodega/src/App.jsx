@@ -2537,6 +2537,8 @@ function App() {
             operatorStats[operatorName].devoluciones += (mov.quantity || 0);
           }
 
+        });
+
       // Añadir resumen por operador
       Object.entries(operatorStats).forEach(([operator, stats]) => {
         operatorSummary.addRow([
